@@ -190,6 +190,15 @@ def edge_pids() -> list[int]:
     return pids
 
 
+def qdbus_bin() -> str:
+    """qdbus6 (Debian/Ubuntu), qdbus-qt6 (Fedora) or qdbus (KDE Flatpak runtime)."""
+    return next((b for b in ("qdbus6", "qdbus-qt6", "qdbus") if shutil.which(b)), "qdbus6")
+
+
+IN_FLATPAK = os.environ.get("FLATPAK_ID", "") if Path("/.flatpak-info").exists() else ""
+STATE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "msol"
+
+
 def close_edge_windows(pids: list[int]) -> None:
     """Close the windows of these Edge processes the way the close button does.
 
@@ -197,18 +206,24 @@ def close_edge_windows(pids: list[int]) -> None:
     """
     if not pids:
         return
-    js = ("var pids = %s;\n"
-          "for (const w of workspace.windowList()) { if (pids.indexOf(w.pid) >= 0) w.closeWindow(); }\n"
-          % json.dumps(pids))
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
-        f.write(js)
+    if IN_FLATPAK:
+        # Process ids inside the sandbox differ from the ones KWin sees: match msol's
+        # Edge windows by their window id instead.
+        match = '(w.desktopFileName || "").indexOf("msedge-") == 0 || w.resourceClass == "msol-edge"'
+    else:
+        match = "%s.indexOf(w.pid) >= 0" % json.dumps(pids)
+    js = "for (const w of workspace.windowList()) { if (%s) w.closeWindow(); }\n" % match
+    # KWin (outside any sandbox) must be able to read the script: not /tmp.
+    STATE.mkdir(parents=True, exist_ok=True)
+    script = STATE / f"kwin-close-{os.getpid()}.js"
+    script.write_text(js)
     name = f"msol-close-{os.getpid()}"
-    q = lambda *a: subprocess.run(["qdbus6", "org.kde.KWin", *a], capture_output=True, text=True).stdout.strip()
-    sid = q("/Scripting", "org.kde.kwin.Scripting.loadScript", f.name, name)
+    q = lambda *a: subprocess.run([qdbus_bin(), "org.kde.KWin", *a], capture_output=True, text=True).stdout.strip()
+    sid = q("/Scripting", "org.kde.kwin.Scripting.loadScript", str(script), name)
     q(f"/Scripting/Script{sid}", "org.kde.kwin.Script.run")
     time.sleep(0.5)
     q("/Scripting", "org.kde.kwin.Scripting.unloadScript", name)
-    os.unlink(f.name)
+    script.unlink(missing_ok=True)
 
 
 def wait_until(cond, seconds: float) -> bool:
@@ -678,7 +693,7 @@ class Launcher(QWidget):
         QTimer.singleShot(300, lambda: self.edge_check(ask=True))
         # First start (e.g. after installing the package): create the menu entries.
         if not (Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
-                / "applications" / "msol-launcher.desktop").exists():
+                / "applications" / "msol-signin.desktop").exists():
             run_msol("install")
 
     @staticmethod
@@ -749,7 +764,7 @@ class Launcher(QWidget):
     def edge_check(self, ask: bool = False) -> None:
         """Warn (and on start, offer to install) when msol's own Edge is missing."""
         e = edge_engine()
-        if e.get("engine") == "private":
+        if e.get("engine") in ("private", "bundled"):
             self.warning.hide(); return
         chosen = e.get("setting") == "flatpak"
         self.warning_text.setText(
@@ -856,7 +871,8 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Microsoft 365")
     app.setWindowIcon(msol_icon())
-    app.setDesktopFileName("msol-launcher")  # Wayland app id -> matches msol-launcher.desktop
+    # Wayland app id -> matches msol-launcher.desktop (or the Flatpak's own entry)
+    app.setDesktopFileName(IN_FLATPAK or "msol-launcher")
     # Event log watcher (single instance; exits by itself when nothing runs).
     subprocess.Popen([sys.executable, str(HERE / "msol-watch.py")], start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

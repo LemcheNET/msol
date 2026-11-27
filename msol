@@ -10,6 +10,8 @@
 #            ~/.local/share/msol/edge. Runs on native Wayland, where every --app
 #            window gets its own app id (msedge-<host__path>-Default): sharp
 #            scaling, GPU from the host drivers, one taskbar entry per app.
+#   bundled  inside the msol Flatpak: the Edge that Flatpak downloaded from
+#            Microsoft when msol was installed (/app/extra), run through zypak.
 #   flatpak  the Edge Flatpak. It gives every Wayland window the same app id, so
 #            it runs under XWayland, where each --app window gets its own
 #            WM_CLASS (<host__path>) instead.
@@ -41,14 +43,31 @@ die() { echo "msol: $*" >&2; exit 1; }
 
 PRIVATE_EDGE_BIN="$MSOL_EDGE_DIR/current/opt/microsoft/msedge/msedge"
 MSOL_ENGINE_SETTING="$MSOL_ENGINE"      # what you chose; MSOL_ENGINE is what is used
-if [[ "$MSOL_ENGINE" == auto ]]; then
+# Running as the msol Flatpak? Then Edge comes with it (Flatpak extra-data).
+IN_FLATPAK=""; [[ -n "${FLATPAK_ID:-}" && -f /.flatpak-info ]] && IN_FLATPAK="$FLATPAK_ID"
+BUNDLED_EDGE_BIN=/app/extra/msedge
+if [[ -n "$IN_FLATPAK" ]]; then
+  MSOL_ENGINE=bundled
+elif [[ "$MSOL_ENGINE" == auto ]]; then
   [[ -x "$PRIVATE_EDGE_BIN" ]] && MSOL_ENGINE=private || MSOL_ENGINE=flatpak
 fi
 case "$MSOL_ENGINE" in
   private) MSOL_EDGE=("$PRIVATE_EDGE_BIN"); MSOL_OZONE="${MSOL_OZONE:-wayland}" ;;
+  bundled) MSOL_EDGE=(zypak-wrapper "$BUNDLED_EDGE_BIN"); MSOL_OZONE="${MSOL_OZONE:-wayland}" ;;
   flatpak) MSOL_EDGE=(flatpak run --command=/app/bin/edge com.microsoft.Edge); MSOL_OZONE="${MSOL_OZONE:-x11}" ;;
   *) die "MSOL_ENGINE must be auto, private or flatpak (got '$MSOL_ENGINE')" ;;
 esac
+
+# How menu entries start msol: directly, or through Flatpak from the host.
+if [[ -n "$IN_FLATPAK" ]]; then
+  RUN_CLI="flatpak run --command=msol $IN_FLATPAK"
+  RUN_GUI="flatpak run $IN_FLATPAK"
+  LAUNCHER_ICON="$IN_FLATPAK"
+else
+  RUN_CLI="\"$SELF\""
+  RUN_GUI="\"$HERE/msol-launcher.py\""
+  LAUNCHER_ICON="$HERE/icons/msol.svg"
+fi
 
 # Prints "id|name|url|icon|comment|group|default|official" per app, trimmed,
 # with defaults for missing columns (group More, default on, official site).
@@ -98,7 +117,7 @@ wm_class_for() { # X11 WM_CLASS: the app name with leading/trailing "_" trimmed
 
 # The id KDE sees for an --app window: Wayland app id or X11 WM_CLASS.
 window_id_for() {
-  if [[ "$MSOL_OZONE" == wayland && "$MSOL_ENGINE" == private ]]; then
+  if [[ "$MSOL_OZONE" == wayland && "$MSOL_ENGINE" != flatpak ]]; then
     # Wayland app id keeps the trailing "_" (seen: msedge-outlook.office.com__mail_-Default)
     echo "msedge-$(app_name_for "$1")-Default"
   else
@@ -153,12 +172,13 @@ MSOL_LINKS="${MSOL_LINKS:-on}"
 EXT_ID="embkllcpilnlkleipfaldnmageiifmof"   # fixed by the "key" in extension/manifest.json
 
 link_flags() {
-  [[ "$MSOL_LINKS" == on && "$MSOL_ENGINE" == private && -f "$HERE/extension/manifest.json" ]] || return 0
+  [[ "$MSOL_LINKS" == on && "$MSOL_ENGINE" != flatpak && -f "$HERE/extension/manifest.json" ]] || return 0
   # Native Edge reads host registrations from its per-user folder; the profile
   # folder is written too for builds that look there.
   local dir
-  for dir in "$HOME/.config/microsoft-edge/NativeMessagingHosts" "$MSOL_PROFILE_DIR/NativeMessagingHosts"; do
-  mkdir -p "$dir"
+  for dir in "${XDG_CONFIG_HOME:-$HOME/.config}/microsoft-edge/NativeMessagingHosts" \
+             "$HOME/.config/microsoft-edge/NativeMessagingHosts" "$MSOL_PROFILE_DIR/NativeMessagingHosts"; do
+  mkdir -p "$dir" 2>/dev/null || continue    # (inside the Flatpak, ~/.config is not writable)
   cat > "$dir/com.msol.open.json" <<JSON
 {
   "name": "com.msol.open",
@@ -305,18 +325,19 @@ cmd_install() {
     grep -qx -- "$id" <<<"$enabled" || continue
     wid="$(window_id_for "$url")"
     write_desktop "$MSOL_DESKTOP_DIR/$wid.desktop" "$name" "$comment (Microsoft web app)" \
-      "\"$SELF\" launch $id" "$(icon_for "$id" "$icon")" "$wid" "X-MSOL-App=$id"
+      "$RUN_CLI launch $id" "$(icon_for "$id" "$icon")" "$wid" "X-MSOL-App=$id"
     keep+="$wid.desktop "; n=$((n+1))
   done < <(read_apps)
   write_desktop "$MSOL_DESKTOP_DIR/msol-signin.desktop" "Microsoft Account (sign-in)" \
-    "Sign in once for all Microsoft web apps" "\"$HERE/msol-launcher.py\" --sign-in" \
+    "Sign in once for all Microsoft web apps" "$RUN_GUI --sign-in" \
     "$(icon_for signin system-users)" "msol-launcher"
-  write_desktop "$MSOL_DESKTOP_DIR/msol-launcher.desktop" "Microsoft 365 Launcher" \
-    "Start screen for all Microsoft web apps" "\"$HERE/msol-launcher.py\"" \
-    "$(icon_for launcher "$HERE/icons/msol.svg")" "msol-launcher"
+  # (The Flatpak has its own launcher entry, exported by Flatpak.)
+  [[ -n "$IN_FLATPAK" ]] || write_desktop "$MSOL_DESKTOP_DIR/msol-launcher.desktop" "Microsoft 365 Launcher" \
+    "Start screen for all Microsoft web apps" "$RUN_GUI" \
+    "$(icon_for launcher "$LAUNCHER_ICON")" "msol-launcher"
   # Hidden: an icon for msol's own browser windows (e.g. the Edge sign-in page).
   write_desktop "$MSOL_DESKTOP_DIR/msol-edge.desktop" "Microsoft 365 (browser window)" \
-    "Browser window of the msol Edge profile" "\"$SELF\" signin --browser" \
+    "Browser window of the msol Edge profile" "$RUN_CLI signin --browser" \
     "$(icon_for m365 applications-office)" "msol-edge" "NoDisplay=true"
   # Remove entries of apps you turned off, and old-style msol-<id>.desktop files.
   for f in "$MSOL_DESKTOP_DIR"/*.desktop; do
@@ -467,6 +488,7 @@ cmd_icons() {
 # it (repository signature -> Packages index -> package SHA256) and unpacks it
 # into $MSOL_EDGE_DIR/<version>. No root, no apt repository, no system changes.
 cmd_edge_install() {
+  [[ -z "$IN_FLATPAK" ]] || die "Edge comes with the msol Flatpak; update both with: flatpak update $IN_FLATPAK"
   local repo="https://packages.microsoft.com/repos/edge" pkg="microsoft-edge-$MSOL_EDGE_CHANNEL"
   local work; work="$(mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/msol-edge.XXXXXX")"
   trap 'rm -rf "$work"' RETURN
@@ -521,6 +543,7 @@ cmd_engine() {
   echo "binary:  ${MSOL_EDGE[*]}"
   echo "display: $MSOL_OZONE"
   [[ "$MSOL_ENGINE" == private ]] && "${MSOL_EDGE[0]}" --version 2>/dev/null || true
+  [[ "$MSOL_ENGINE" == bundled ]] && "$BUNDLED_EDGE_BIN" --version 2>/dev/null || true
 }
 
 case "${1:-}" in
@@ -560,7 +583,7 @@ Usage: msol <command>
                  (asks first; add --yes to skip the question)
   edge-install   download, verify and unpack msol's own native Edge (no root)
   edge-update    same as edge-install: fetch the newest version if there is one
-  engine         show which Edge msol uses (private or flatpak)
+  engine         show which Edge msol uses (private, bundled or flatpak)
   note <text>    add your own line to the event log, e.g. 'msol note closed all, reopened Word'
   log [N|-f]     show the last N events (default 60), or follow them live with -f
   version        show msol's version

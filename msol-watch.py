@@ -159,7 +159,9 @@ def launcher_running() -> bool:
 # --- KWin window events -------------------------------------------------------
 
 def qdbus(*args: str) -> str:
-    return subprocess.run(["qdbus6", "org.kde.KWin", *args], capture_output=True, text=True).stdout.strip()
+    # qdbus6 (Debian/Ubuntu), qdbus-qt6 (Fedora) or qdbus (KDE Flatpak runtime)
+    exe = next((b for b in ("qdbus6", "qdbus-qt6", "qdbus") if shutil.which(b)), "qdbus6")
+    return subprocess.run([exe, "org.kde.KWin", *args], capture_output=True, text=True).stdout.strip()
 
 
 def start_kwin_script() -> Path:
@@ -224,9 +226,12 @@ def main() -> int:
     signal.signal(signal.SIGINT, _term)
 
     stop = threading.Event()
-    start_kwin_script()
-    threading.Thread(target=follow_windows, args=(stop,), daemon=True).start()
     log("WATCH-START", f"profile={PROFILE}")
+    if shutil.which("journalctl"):
+        start_kwin_script()
+        threading.Thread(target=follow_windows, args=(stop,), daemon=True).start()
+    else:  # e.g. inside the Flatpak: KWin's script output goes to the journal
+        log("NOTE", "window events are not logged here (no access to the system journal)")
 
     last = {"web": None, "account": None, "cache": None}
     pids: set[int] = set()
@@ -236,7 +241,7 @@ def main() -> int:
             now_pids = edge_pids()
             for p in sorted(now_pids - pids):
                 cmd = Path(f"/proc/{p}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-                engine = "flatpak" if cmd.startswith("/app/extra") else "private"
+                engine = ("bundled" if os.environ.get("FLATPAK_ID") else "flatpak") if cmd.startswith("/app/extra") else "private"
                 log("EDGE-START", f"pid {p} ({engine})")
             for p in sorted(pids - now_pids):
                 log("EDGE-EXIT", f"pid {p}")

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Microsoft 365 Launcher
+Comment=Start screen for Microsoft web apps, each in its own window (msol)
+Exec=msol-launcher
+Icon=io.github.LemcheNET.msol
+Terminal=false
+Categories=Office;Network;
+StartupNotify=true
+StartupWMClass=io.github.LemcheNET.msol

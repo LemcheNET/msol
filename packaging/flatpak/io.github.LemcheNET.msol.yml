@@ -1,0 +1,96 @@
+# msol as a Flatpak (prototype).
+#
+# Microsoft Edge is NOT part of this package: Microsoft does not allow
+# redistributing it. It is "extra-data": when you install the Flatpak, Flatpak
+# itself downloads the official Edge .deb from packages.microsoft.com on your
+# computer, checks the SHA256 below, and unpacks it into /app/extra (see
+# apply_extra). This is how Flathub's own Edge package works too.
+#
+# Build:  flatpak-builder --user --install --force-clean build-dir packaging/flatpak/io.github.LemcheNET.msol.yml
+app-id: io.github.LemcheNET.msol
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+base: com.riverbankcomputing.PyQt.BaseApp
+base-version: '6.11'
+command: msol-launcher
+separate-locales: false
+build-options:
+  no-debuginfo: true
+tags:
+  - proprietary   # because of the Edge it downloads
+
+finish-args:
+  # Display: native Wayland, so every app window gets its own app id.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=all              # GPU, webcam/microphone for Teams, FIDO2 security keys
+  - --share=network
+  - --socket=pulseaudio
+  - --socket=pcsc             # smart cards / FIDO2
+  # Edge's saved passwords and sign-in are encrypted with a key from the keyring.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.kwalletd6
+  - --talk-name=org.kde.kwalletd5
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.ScreenSaver
+  - --talk-name=org.freedesktop.FileManager1
+  # KWin scripting: close app windows cleanly, report window events.
+  - --talk-name=org.kde.KWin
+  # Menu entries per app (Word, Outlook, ...) and the shared sign-in profile.
+  - --filesystem=home/.local/share/applications:create
+  - --filesystem=home/.local/share/msol:create
+  - --filesystem=xdg-download
+  - --persist=.pki
+
+modules:
+  # Edge needs libxml2.so.2; the 25.08-based runtimes ship libxml2 2.14 (.so.16).
+  - name: libxml2-2.13
+    buildsystem: autotools
+    config-opts: [--without-python, --without-debug, --without-history]
+    cleanup: [/share, /include, /bin, /lib/pkgconfig, /lib/cmake, '*.la']
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.9.tar.xz
+        sha256: a2c9ae7b770da34860050c309f903221c67830c86e4a7e760692b803df95143a
+
+  # zypak: runs Chromium's sandbox through Flatpak's own sandbox.
+  - name: zypak
+    sources:
+      - type: git
+        url: https://github.com/refi64/zypak
+        tag: v2025.09
+        commit: 693a71c5ffa80ec9c9ce2ae03b1ccc493c698e53
+
+  - name: msol
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 -t /app/lib/msol msol msol-launcher.py msol-native-host.py
+      - install -Dm644 -t /app/lib/msol msol-watch.py msol-icons.py apps.conf
+      - install -Dm644 -t /app/lib/msol/extension extension/manifest.json extension/background.js
+      - install -Dm644 icons/msol.svg /app/lib/msol/icons/msol.svg
+      - echo "${MSOL_VERSION:-flatpak-dev}" > /app/lib/msol/VERSION
+      - ln -s ../lib/msol/msol /app/bin/msol
+      - install -Dm755 packaging/flatpak/msol-launcher.sh /app/bin/msol-launcher
+      - install -Dm755 packaging/flatpak/apply_extra.sh /app/bin/apply_extra
+      - install -Dm755 packaging/flatpak/stub_sandbox.sh /app/bin/stub_sandbox
+      - install -Dm644 packaging/flatpak/io.github.LemcheNET.msol.desktop -t /app/share/applications
+      - install -Dm644 packaging/flatpak/io.github.LemcheNET.msol.metainfo.xml -t /app/share/metainfo
+      - install -Dm644 icons/msol.svg /app/share/icons/hicolor/scalable/apps/io.github.LemcheNET.msol.svg
+      - install -Dm644 packaging/flatpak/ld.so.conf -t /app/etc
+    sources:
+      - type: dir
+        path: ../..
+        skip: [build-dir, .flatpak-builder, repo, dist, .git]
+      - type: extra-data
+        filename: edge.deb
+        url: https://packages.microsoft.com/repos/edge/pool/main/m/microsoft-edge-stable/microsoft-edge-stable_158.0.4370.45-1_amd64.deb
+        sha256: cff51a8f3f86515ac406aa0fdd59cf74bd35b4e5a497fd40fdd8df92fa34f91c
+        size: 206331006
+        x-checker-data:
+          type: debian-repo
+          package-name: microsoft-edge-stable
+          root: https://packages.microsoft.com/repos/edge
+          dist: stable
+          component: main
