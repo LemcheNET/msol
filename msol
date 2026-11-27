@@ -294,6 +294,10 @@ cmd_ids() {
   printf '%s|%s\n' "Sign-in window" "$(window_id_for https://www.office.com/login)"
 }
 
+exec_program() { # the program of an Exec line: '"/path/x" args' -> /path/x, 'flatpak run ...' -> flatpak
+  if [[ "$1" == \"* ]]; then local t="${1#\"}"; echo "${t%%\"*}"; else echo "${1%% *}"; fi
+}
+
 write_desktop() { # write_desktop <file> <name> <comment> <exec> <icon> <wmclass> [extra line]
   cat > "$1" <<EOF
 [Desktop Entry]
@@ -302,7 +306,7 @@ Version=1.0
 Name=$2
 Comment=$3
 Exec=$4
-TryExec=$(t="${4#\"}"; echo "${t%%\"*}")
+TryExec=$(exec_program "$4")
 Icon=$5
 Terminal=false
 Categories=Office;Network;
