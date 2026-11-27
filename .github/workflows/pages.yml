@@ -1,21 +1,80 @@
 name: Pages
 
+# Deploys the website (site/) together with the signed APT repository
+# (site/apt), which is rebuilt from the .deb files of all GitHub releases.
+# Pull requests build and test the repository without deploying it.
+# The release workflow starts this after publishing a release.
 on:
   push:
     branches: [main]
-    paths: ['site/**', '.github/workflows/pages.yml']
+    paths: ['site/**', 'packaging/apt/**', '.github/workflows/pages.yml']
+  pull_request:
+    paths: ['site/**', 'packaging/apt/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: false
 
 jobs:
+  build:
+    name: Build site and APT repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the .deb of every release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/debs"
+          for tag in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,isDraft,isPrerelease \
+                         --jq '.[] | select(.isDraft | not) | select(.isPrerelease | not) | .tagName'); do
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir "$RUNNER_TEMP/debs" --skip-existing
+          done
+          ls -l "$RUNNER_TEMP/debs"
+
+      - name: Build the signed APT repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ -z "$APT_SIGNING_KEY" ] && [ "$EVENT" != pull_request ]; then
+            echo "::error::APT_SIGNING_KEY secret is missing"; exit 1
+          fi
+          sudo apt-get install -y -qq apt-utils >/dev/null
+          packaging/apt/build-repo.sh "$RUNNER_TEMP/debs" site/apt
+
+      - name: Test the repository with apt
+        run: |
+          sudo install -m644 packaging/apt/msol-archive-keyring.gpg /usr/share/keyrings/msol-archive-keyring.gpg
+          src=/etc/apt/sources.list.d/msol-ci-test.sources
+          sed "s#^URIs: .*#URIs: file://$PWD/site/apt#" packaging/apt/msol.sources | sudo tee "$src" >/dev/null
+          # Pull requests from forks get no signing key: test those unsigned.
+          [ -f site/apt/dists/stable/InRelease ] || echo "Trusted: yes" | sudo tee -a "$src" >/dev/null
+          sudo apt-get update 2>&1 | tee "$RUNNER_TEMP/update.log"
+          # Any warning or error about our repository (bad signature, missing files) fails the job.
+          ! grep -E '^(W|E):' "$RUNNER_TEMP/update.log" | grep -i -E 'msol|site/apt'
+          apt-cache policy msol
+          apt-cache policy msol | grep -q 'site/apt' || { echo "::error::msol not found in the repository"; exit 1; }
+          sudo apt-get install -y msol
+          msol version
+          sudo rm "$src"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
   deploy:
     name: Deploy site
+    needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -24,12 +83,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: site
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

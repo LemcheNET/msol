@@ -1,0 +1,9 @@
+# msol APT repository: https://products.lemche.net/msol/
+# Installed by the msol package (or by hand, with the same content) so that
+# `apt update && apt upgrade` brings new msol versions.
+Types: deb
+URIs: https://products.lemche.net/msol/apt
+Suites: stable
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/msol-archive-keyring.gpg
