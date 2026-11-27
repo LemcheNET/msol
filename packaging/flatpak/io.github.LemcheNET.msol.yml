@@ -43,6 +43,8 @@ finish-args:
   - --filesystem=home/.local/share/msol:create
   - --filesystem=xdg-download
   - --persist=.pki
+  # zypak stands in for Chromium's setuid sandbox helper; Edge names it msedge-sandbox.
+  - --env=ZYPAK_SANDBOX_FILENAME=msedge-sandbox
 
 modules:
   # Edge needs libxml2.so.2; the 25.08-based runtimes ship libxml2 2.14 (.so.16).

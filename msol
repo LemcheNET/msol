@@ -539,7 +539,7 @@ cmd_edge_install() {
 cmd_engine() {
   echo "engine:  $MSOL_ENGINE"
   echo "setting: $MSOL_ENGINE_SETTING"
-  echo "private: $([[ -x "$PRIVATE_EDGE_BIN" ]] && echo installed || echo missing)"
+  [[ -n "$IN_FLATPAK" ]] || echo "private: $([[ -x "$PRIVATE_EDGE_BIN" ]] && echo installed || echo missing)"
   echo "binary:  ${MSOL_EDGE[*]}"
   echo "display: $MSOL_OZONE"
   [[ "$MSOL_ENGINE" == private ]] && "${MSOL_EDGE[0]}" --version 2>/dev/null || true
