@@ -31,6 +31,8 @@ jobs:
         run: |
           jq -e '.manifest_version == 3' extension/manifest.json
           node --check extension/background.js
+      - name: Plasma widget metadata
+        run: jq -e '.KPlugin.Id == "io.github.lemchenet.msol.teams"' packaging/plasmoid/io.github.lemchenet.msol.teams/metadata.json
       - name: apps.conf parses and window ids are unique
         run: |
           ./msol list
@@ -68,6 +70,7 @@ jobs:
           msol version
           msol list
           test -x /usr/lib/msol/msol-launcher.py
+          test -f /usr/share/plasma/plasmoids/io.github.lemchenet.msol.teams/contents/ui/main.qml
           python3 -c "import PyQt6.QtWidgets"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

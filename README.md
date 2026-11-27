@@ -157,6 +157,28 @@ The status comes from the names and expiry dates of Microsoft's sign-in
 cookies in the profile (`ESTSAUTHPERSISTENT` for work/school, `MSPAuth`/`WLSSC`
 for personal accounts). It never reads cookie values.
 
+## Teams widget
+
+Microsoft Teams in msol is an Edge app window: closing it ends Teams. The
+**Teams (msol)** widget for the Plasma panel keeps it close at hand instead:
+
+- **Click** shows Teams, or hides it when it's in front. Hidden means
+  minimised and left out of the taskbar: Teams keeps running and still sends
+  notifications. If Teams isn't running, a click starts it.
+- **Right-click** for Show, Hide, Quit, and **Start Teams at login (hidden)**.
+
+Add it with right-click on the panel → **Add Widgets…** → search for "Teams (msol)".
+Clicking ✕ on the Teams window still quits Teams (Edge doesn't let msol change
+that); hide it with the widget or minimise it instead.
+
+The same works from the command line, for any app:
+
+```bash
+msol window teams toggle      # show, hide, toggle, close or status
+msol autostart teams on       # start at login, hidden (off / status)
+msol launch teams --hidden    # start without showing the window
+```
+
 ## Links between apps
 
 The apps link to each other, for example through Microsoft's app menu (the
