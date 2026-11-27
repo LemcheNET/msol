@@ -2,6 +2,7 @@
 // Teams itself runs in msol's Edge; hidden means minimised and left out of the
 // taskbar, so it keeps running (and notifying) in the background.
 import QtQuick
+import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
 import org.kde.kirigami as Kirigami
@@ -14,7 +15,7 @@ PlasmoidItem {
     property string iconSource: "im-user"
     property bool startAtLogin: false
 
-    preferredRepresentation: compactRepresentation
+    preferredRepresentation: fullRepresentation
     toolTipMainText: "Teams"
     toolTipSubText: "Click to show or hide Teams. Right-click for more."
 
@@ -37,14 +38,25 @@ PlasmoidItem {
         }
     }
 
-    compactRepresentation: Kirigami.Icon {
-        source: root.iconSource
-        active: mouse.containsMouse
-        MouseArea {
-            id: mouse
+    // A one-click button: the root item itself is what the panel shows (the
+    // "full" representation), sized like an icon: as wide as the panel is tall
+    // in a horizontal panel, as tall as it is wide in a vertical one.
+    readonly property bool vertical: Plasmoid.formFactor === PlasmaCore.Types.Vertical
+    Layout.minimumWidth: vertical ? Kirigami.Units.iconSizes.small : height
+    Layout.maximumWidth: vertical ? -1 : height
+    Layout.minimumHeight: vertical ? width : Kirigami.Units.iconSizes.small
+    Layout.maximumHeight: vertical ? width : -1
+
+    MouseArea {
+        id: mouse
+        anchors.fill: parent
+        hoverEnabled: true
+        onClicked: root.msol("window " + root.appId + " toggle")
+
+        Kirigami.Icon {
             anchors.fill: parent
-            hoverEnabled: true
-            onClicked: root.msol("window " + root.appId + " toggle")
+            source: root.iconSource
+            active: mouse.containsMouse
         }
     }
 
@@ -65,10 +77,11 @@ PlasmoidItem {
             onTriggered: root.msol("window " + root.appId + " close")
         },
         PlasmaCore.Action {
+            id: loginAction
             text: "Start Teams at login (hidden)"
             checkable: true
             checked: root.startAtLogin
-            onTriggered: root.msol("autostart " + root.appId + (checked ? " on" : " off"))
+            onTriggered: root.msol("autostart " + root.appId + (loginAction.checked ? " on" : " off"))
         }
     ]
 
