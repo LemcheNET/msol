@@ -347,6 +347,11 @@ it into a login form in this profile.
 - The website is `site/`, published to GitHub Pages when it changes on `main`.
 - `main` is protected: changes go in through pull requests that pass CI and CodeQL.
 
+## Contributing
+
+Pull requests are welcome. Sign off your commits (`git commit -s`, the DCO);
+see [CONTRIBUTING.md](CONTRIBUTING.md) for the checks every pull request runs.
+
 ## Licence
 
 MIT, see [LICENSE](LICENSE).
