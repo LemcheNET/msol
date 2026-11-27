@@ -15,7 +15,7 @@
       not made, endorsed or supported by Microsoft.</p>
   </description>
   <launchable type="desktop-id">io.github.LemcheNET.msol.desktop</launchable>
-  <url type="homepage">https://lemchenet.github.io/msol/</url>
+  <url type="homepage">https://products.lemche.net/msol/</url>
   <url type="bugtracker">https://github.com/LemcheNET/msol/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
