@@ -24,7 +24,7 @@ from PyQt6.QtCore import QPoint, QProcess, QRect, QSize, Qt, QTimer
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLayout,
-    QInputDialog, QLabel, QMessageBox, QProgressBar, QProgressDialog, QPushButton, QRadioButton,
+    QLabel, QMessageBox, QProgressBar, QProgressDialog, QPushButton, QRadioButton,
     QScrollArea, QStackedWidget,
     QToolButton, QVBoxLayout, QWidget,
 )
@@ -225,6 +225,12 @@ def edge_engine() -> dict[str, str]:
     """`msol engine` as a dict: engine (private|flatpak), setting (auto|...), private (installed|missing)."""
     out = subprocess.run([str(MSOL), "engine"], capture_output=True, text=True).stdout
     return {k.strip(): v.strip() for k, _, v in (l.partition(":") for l in out.splitlines()) if v}
+
+
+def msol_icon() -> QIcon:
+    """msol's own icon (icons/msol.svg), or a theme icon if it is missing."""
+    f = HERE / "icons" / "msol.svg"
+    return QIcon(str(f)) if f.is_file() else QIcon.fromTheme("applications-office")
 
 
 def run_msol(*args: str) -> None:
@@ -608,7 +614,7 @@ class Launcher(QWidget):
         super().__init__()
         self.setObjectName("root")
         self.setWindowTitle("Microsoft 365")
-        self.setWindowIcon(QIcon.fromTheme("applications-office"))
+        self.setWindowIcon(msol_icon())
         self.setStyleSheet(STYLE)
 
         title = QLabel(self._greeting()); title.setObjectName("title")
@@ -650,12 +656,8 @@ class Launcher(QWidget):
         status_row.addWidget(self.dot); status_row.addWidget(self.status, 1)
         status_row.addWidget(self.running)
         status_row.addWidget(self.signin_btn); status_row.addWidget(signout_btn)
-        note_btn = QPushButton(QIcon.fromTheme("document-edit"), "Add note…")
-        note_btn.setToolTip("Write a line into the event log (msol log), e.g. what you are about to test")
-        note_btn.clicked.connect(self.add_note)
         account_row = QHBoxLayout()
         account_row.addStretch(1); account_row.addWidget(self.edge_btn)
-        account_row.addWidget(note_btn)
         customize_btn = QPushButton(QIcon.fromTheme("configure"), "Customize apps…")
         customize_btn.setToolTip("Choose which Microsoft apps to show, and generic or official icons")
         customize_btn.clicked.connect(self.customize)
@@ -777,11 +779,6 @@ class Launcher(QWidget):
             self.build_tiles()
             self.refresh()
 
-    def add_note(self) -> None:
-        text, ok = QInputDialog.getText(self, "Add note", "What are you testing or seeing?")
-        if ok and text.strip():
-            subprocess.run([str(MSOL), "note", text.strip()], capture_output=True)
-
     def sign_in_edge(self) -> None:
         SignInWizard(self).exec()
         self.refresh()
@@ -858,6 +855,7 @@ class Launcher(QWidget):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Microsoft 365")
+    app.setWindowIcon(msol_icon())
     app.setDesktopFileName("msol-launcher")  # Wayland app id -> matches msol-launcher.desktop
     # Event log watcher (single instance; exits by itself when nothing runs).
     subprocess.Popen([sys.executable, str(HERE / "msol-watch.py")], start_new_session=True,

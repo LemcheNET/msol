@@ -313,7 +313,7 @@ cmd_install() {
     "$(icon_for signin system-users)" "msol-launcher"
   write_desktop "$MSOL_DESKTOP_DIR/msol-launcher.desktop" "Microsoft 365 Launcher" \
     "Start screen for all Microsoft web apps" "\"$HERE/msol-launcher.py\"" \
-    "$(icon_for launcher applications-office)" "msol-launcher"
+    "$(icon_for launcher "$HERE/icons/msol.svg")" "msol-launcher"
   # Hidden: an icon for msol's own browser windows (e.g. the Edge sign-in page).
   write_desktop "$MSOL_DESKTOP_DIR/msol-edge.desktop" "Microsoft 365 (browser window)" \
     "Browser window of the msol Edge profile" "\"$SELF\" signin --browser" \
