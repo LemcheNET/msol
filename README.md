@@ -47,11 +47,14 @@ brings new versions:
 ```bash
 sudo curl -fsSLo /usr/share/keyrings/msol-archive-keyring.gpg https://products.lemche.net/msol/apt/msol-archive-keyring.gpg
 sudo curl -fsSLo /etc/apt/sources.list.d/msol.sources https://products.lemche.net/msol/apt/msol.sources
+sudo chmod 644 /usr/share/keyrings/msol-archive-keyring.gpg /etc/apt/sources.list.d/msol.sources
 sudo apt update && sudo apt install msol
 ```
 
 The repository is signed with the key
 `BFF6 2184 3185 94CF F101  AA92 BDD4 2290 9F65 02DA` ("msol APT repository (LemcheNET)").
+apt reads the key as an unprivileged user, so both files must be readable by
+everyone; the `chmod` matters on systems where root's umask is strict (077).
 The package keeps these two files up to date itself.
 
 **Or from a single .deb:** download `msol_<version>_all.deb` from the

@@ -123,6 +123,7 @@
       <li><strong>Add the msol repository and install</strong>so that <code>apt upgrade</code> keeps msol up to date:
         <pre><code>sudo curl -fsSLo /usr/share/keyrings/msol-archive-keyring.gpg https://products.lemche.net/msol/apt/msol-archive-keyring.gpg
 sudo curl -fsSLo /etc/apt/sources.list.d/msol.sources https://products.lemche.net/msol/apt/msol.sources
+sudo chmod 644 /usr/share/keyrings/msol-archive-keyring.gpg /etc/apt/sources.list.d/msol.sources
 sudo apt update &amp;&amp; sudo apt install msol</code></pre>
         Or download <code>msol_&lt;version&gt;_all.deb</code> from the
         <a href="https://github.com/LemcheNET/msol/releases/latest">latest release</a> and run
