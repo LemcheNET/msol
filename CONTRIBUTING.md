@@ -31,7 +31,9 @@ git push --force-with-lease
 
 - **Lint**: shellcheck, ruff and checks on `apps.conf`
 - **Build .deb**: builds and test-installs the package
-- **CodeQL** and **SonarQube Cloud**: code security and quality analysis
+- **CodeQL**: code security analysis
+- **SonarQube Cloud**: code quality and security analysis; the check fails, and
+  blocks the merge, when the change doesn't pass SonarQube Cloud's quality gate
 - **Dependency review**: blocks newly added dependencies with known vulnerabilities
 - **DCO**: every commit is signed off
 
