@@ -63,10 +63,13 @@ def log(kind: str, msg: str) -> None:
         f.write(line)
 
 
+LOGIN_HOSTS = ("login.microsoftonline.com", "login.live.com")
+
+
 def verdict(title: str) -> str:
     t = title.lower()
     if ("sign in to your account" in t or t.strip() in ("sign in", "sign-in") or "sign in -" in t
-            or t.startswith("login.microsoftonline.com") or t.startswith("login.live.com")):
+            or t.split("/", 1)[0] in LOGIN_HOSTS):   # title is a sign-in URL
         return "LOGIN PROMPT"
     if "pick an account" in t:
         return "ACCOUNT PICKER"
