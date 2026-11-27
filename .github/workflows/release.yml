@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the release
+      actions: write    # start the Pages deploy, which adds the release to the APT repository
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,3 +44,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" dist/*.deb dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "msol $TAG" --generate-notes --verify-tag
+      - name: Update the APT repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # (A release made with the workflow token doesn't trigger other workflows by itself.)
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

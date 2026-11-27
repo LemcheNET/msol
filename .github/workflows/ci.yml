@@ -22,7 +22,7 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck
-        run: shellcheck -S warning msol
+        run: shellcheck -S warning msol packaging/apt/*.sh
       - name: ruff
         run: pipx run ruff==0.17.6 check .
       - name: Python syntax

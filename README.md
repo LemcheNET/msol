@@ -41,15 +41,25 @@ msol is an independent project, not made, endorsed or supported by Microsoft.
 
 ## Setup
 
-**From the package** (Debian, Ubuntu, Kubuntu, KDE neon): download
-`msol_<version>_all.deb` from the [latest release](https://github.com/LemcheNET/msol/releases/latest),
-then
+**From the APT repository** (Debian, Ubuntu, Kubuntu, KDE neon), so `apt upgrade`
+brings new versions:
 
 ```bash
-sudo apt install ./msol_*_all.deb
+sudo curl -fsSLo /usr/share/keyrings/msol-archive-keyring.gpg https://products.lemche.net/msol/apt/msol-archive-keyring.gpg
+sudo curl -fsSLo /etc/apt/sources.list.d/msol.sources https://products.lemche.net/msol/apt/msol.sources
+sudo apt update && sudo apt install msol
 ```
 
-and open **Microsoft 365 Launcher** from the application menu. On first start it
+The repository is signed with the key
+`BFF6 2184 3185 94CF F101  AA92 BDD4 2290 9F65 02DA` ("msol APT repository (LemcheNET)").
+The package keeps these two files up to date itself.
+
+**Or from a single .deb:** download `msol_<version>_all.deb` from the
+[latest release](https://github.com/LemcheNET/msol/releases/latest) and run
+`sudo apt install ./msol_*_all.deb`. From version 1.2.0 on, this also adds the
+APT repository, so later versions arrive through `apt upgrade`.
+
+Then open **Microsoft 365 Launcher** from the application menu. On first start it
 offers to download msol's own Edge and creates the menu entries. The package puts
 msol in `/usr/lib/msol` with `msol` on your `PATH`. To change the app list, copy
 `/usr/lib/msol/apps.conf` to `~/.config/msol/apps.conf` and edit that copy.
@@ -326,7 +336,11 @@ it into a login form in this profile.
 - CodeQL scans the Python, JavaScript and workflow files on every push, on pull
   requests and weekly.
 - A release: push a tag such as `v1.0.0`. The release workflow builds the
-  `.deb` and publishes it with a `SHA256SUMS` file.
+  `.deb`, publishes it with a `SHA256SUMS` file, and starts the Pages workflow.
+- The APT repository (`https://products.lemche.net/msol/apt`) is rebuilt by the
+  Pages workflow from the `.deb` files of all releases (`packaging/apt/build-repo.sh`),
+  signed with the `APT_SIGNING_KEY` secret, and test-installed with apt before it
+  is published.
 - The website is `site/`, published to GitHub Pages when it changes on `main`.
 - `main` is protected: changes go in through pull requests that pass CI and CodeQL.
 
