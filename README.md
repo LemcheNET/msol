@@ -8,7 +8,7 @@ Teams, …) in **Microsoft Edge** as **separate app windows**, each with its own
 menu entry, taskbar entry and icon, like locally installed Office. They all
 share **one sign-in**. Made for KDE Plasma 6 on Wayland.
 
-Website: <https://lemchenet.github.io/msol/>
+Website: <https://products.lemche.net/msol/>
 
 msol is an independent project, not made, endorsed or supported by Microsoft.
 

@@ -16,7 +16,7 @@ description: |
   their own windows, each with its own taskbar entry and icon, sharing one
   dedicated Microsoft Edge profile so you sign in once. Made for KDE Plasma.
   Microsoft Edge itself is downloaded per user from Microsoft on first start.
-homepage: https://lemchenet.github.io/msol/
+homepage: https://products.lemche.net/msol/
 license: MIT
 
 depends:
