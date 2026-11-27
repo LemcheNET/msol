@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>msol</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3d5bd9"/>
+      <stop offset="1" stop-color="#2a2f8f"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b3040"/>
+      <stop offset="1" stop-color="#161923"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc247"/>
+      <stop offset="1" stop-color="#f28c1b"/>
+    </linearGradient>
+    <clipPath id="clip"><rect x="8" y="8" width="240" height="240" rx="56"/></clipPath>
+  </defs>
+
+  <!-- tile background -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+
+  <g clip-path="url(#clip)">
+    <!-- app launcher grid -->
+    <g fill="#ffffff">
+      <rect x="36" y="36" width="38" height="38" rx="10" opacity="0.95"/>
+      <rect x="86" y="36" width="38" height="38" rx="10" opacity="0.8"/>
+      <rect x="136" y="36" width="38" height="38" rx="10" opacity="0.65"/>
+      <rect x="36" y="86" width="38" height="38" rx="10" opacity="0.8"/>
+      <rect x="86" y="86" width="38" height="38" rx="10" opacity="0.65"/>
+      <rect x="36" y="136" width="38" height="38" rx="10" opacity="0.65"/>
+      <rect x="36" y="186" width="38" height="38" rx="10" opacity="0.5"/>
+    </g>
+    <rect x="186" y="36" width="38" height="38" rx="10" fill="#ffc247"/>
+
+    <!-- penguin -->
+    <g transform="translate(0 -8)">
+      <!-- waving flipper (behind body) -->
+      <ellipse cx="110" cy="150" rx="11" ry="27" fill="url(#body)" transform="rotate(-38 110 150)"/>
+      <!-- other flipper -->
+      <ellipse cx="222" cy="196" rx="11" ry="27" fill="url(#body)" transform="rotate(16 222 196)"/>
+      <!-- body and head -->
+      <ellipse cx="170" cy="190" rx="52" ry="56" fill="url(#body)"/>
+      <circle cx="170" cy="138" r="42" fill="url(#body)"/>
+      <!-- belly -->
+      <ellipse cx="170" cy="198" rx="36" ry="42" fill="#fbfaf5"/>
+      <!-- face -->
+      <path d="M138 142 C138 118 156 112 170 124 C184 112 202 118 202 142 C202 162 186 170 170 170 C154 170 138 162 138 142 Z" fill="#fbfaf5"/>
+      <!-- eyes -->
+      <ellipse cx="158" cy="138" rx="7.5" ry="9" fill="#161923"/>
+      <ellipse cx="182" cy="138" rx="7.5" ry="9" fill="#161923"/>
+      <circle cx="160.5" cy="134.5" r="3" fill="#ffffff"/>
+      <circle cx="184.5" cy="134.5" r="3" fill="#ffffff"/>
+      <!-- cheeks -->
+      <ellipse cx="146" cy="153" rx="6.5" ry="4" fill="#ff8fa3" opacity="0.6"/>
+      <ellipse cx="194" cy="153" rx="6.5" ry="4" fill="#ff8fa3" opacity="0.6"/>
+      <!-- beak -->
+      <path d="M160 150 Q170 144 180 150 Q176 160 170 161 Q164 160 160 150 Z" fill="url(#orange)"/>
+      <!-- feet -->
+      <ellipse cx="150" cy="243" rx="17" ry="8" fill="url(#orange)"/>
+      <ellipse cx="190" cy="243" rx="17" ry="8" fill="url(#orange)"/>
+    </g>
+  </g>
+</svg>

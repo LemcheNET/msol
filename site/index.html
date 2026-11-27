@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>msol: Microsoft 365 web apps as real windows on Linux</title>
 <meta name="description" content="msol runs Word, Excel, Outlook, Teams and the other Microsoft 365 web apps in their own windows on KDE Plasma, sharing one sign-in.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='13' height='13' rx='3' fill='%233b6fd8'/%3E%3Crect x='17' y='2' width='13' height='13' rx='3' fill='%2348a868'/%3E%3Crect x='2' y='17' width='13' height='13' rx='3' fill='%23e0913a'/%3E%3Crect x='17' y='17' width='13' height='13' rx='3' fill='%238a63c9'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="msol.svg">
 <style>
   :root {
     --bg: #f7f7f5; --fg: #1c1d1f; --muted: #5d6066; --card: #ffffff; --line: #e3e3df;
@@ -24,7 +24,7 @@
   .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
   header.top { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--fg); }
-  .brand svg { width: 28px; height: 28px; }
+  .brand img { width: 32px; height: 32px; }
   nav a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
   nav a:hover { color: var(--fg); }
 
@@ -72,7 +72,7 @@
 <div class="wrap">
   <header class="top">
     <a class="brand" href="#">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="13" height="13" rx="3" fill="#3b6fd8"/><rect x="17" y="2" width="13" height="13" rx="3" fill="#48a868"/><rect x="2" y="17" width="13" height="13" rx="3" fill="#e0913a"/><rect x="17" y="17" width="13" height="13" rx="3" fill="#8a63c9"/></svg>
+      <img src="msol.svg" alt="" width="32" height="32">
       msol
     </a>
     <nav>
