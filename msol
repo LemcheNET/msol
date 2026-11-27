@@ -1,0 +1,569 @@
+#!/usr/bin/env bash
+# msol — Microsoft web apps on Linux as separate windows, sharing one Edge sign-in.
+#
+# All apps run in ONE dedicated Edge instance (its own --user-data-dir), so they
+# share cookies: you sign in once and every other Microsoft app signs in by SSO.
+# The profile lives on disk, so the sign-in survives closing apps and rebooting.
+#
+# Engines:
+#   private  msol's own copy of native Edge (`msol edge-install`), in
+#            ~/.local/share/msol/edge. Runs on native Wayland, where every --app
+#            window gets its own app id (msedge-<host__path>-Default): sharp
+#            scaling, GPU from the host drivers, one taskbar entry per app.
+#   flatpak  the Edge Flatpak. It gives every Wayland window the same app id, so
+#            it runs under XWayland, where each --app window gets its own
+#            WM_CLASS (<host__path>) instead.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+SELF="$HERE/msol"
+
+# ---- settings (override in ~/.config/msol/msol.conf or the environment) ------
+MSOL_PROFILE_DIR="${MSOL_PROFILE_DIR:-$HOME/.local/share/msol/edge-profile}"
+# Your own copy in ~/.config/msol/apps.conf wins over the one that comes with msol.
+MSOL_APPS_FILE="${MSOL_APPS_FILE:-$( [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/msol/apps.conf" ]] &&
+  echo "${XDG_CONFIG_HOME:-$HOME/.config}/msol/apps.conf" || echo "$HERE/apps.conf")}"
+MSOL_EDGE_DIR="${MSOL_EDGE_DIR:-$HOME/.local/share/msol/edge}"   # private Edge copies
+MSOL_EDGE_CHANNEL="${MSOL_EDGE_CHANNEL:-stable}"                 # stable | beta | dev
+# auto = private Edge if installed, else the Flatpak.
+MSOL_ENGINE="${MSOL_ENGINE:-auto}"
+MSOL_EXTRA_FLAGS=()                      # extra Edge flags, e.g. (--enable-features=...)
+# Page zoom for X11 windows. "auto" = KDE's "Legacy applications (X11): apply
+# scaling themselves" factor ([Xwayland] Scale in kwinrc), so windows render at
+# full resolution instead of being stretched (blurry). Set a number to force one.
+MSOL_SCALE="${MSOL_SCALE:-auto}"
+MSOL_DESKTOP_DIR="${MSOL_DESKTOP_DIR:-$HOME/.local/share/applications}"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/msol/msol.conf"
+# shellcheck source=/dev/null
+[[ -f "$CONF" ]] && source "$CONF"
+
+die() { echo "msol: $*" >&2; exit 1; }
+
+PRIVATE_EDGE_BIN="$MSOL_EDGE_DIR/current/opt/microsoft/msedge/msedge"
+MSOL_ENGINE_SETTING="$MSOL_ENGINE"      # what you chose; MSOL_ENGINE is what is used
+if [[ "$MSOL_ENGINE" == auto ]]; then
+  [[ -x "$PRIVATE_EDGE_BIN" ]] && MSOL_ENGINE=private || MSOL_ENGINE=flatpak
+fi
+case "$MSOL_ENGINE" in
+  private) MSOL_EDGE=("$PRIVATE_EDGE_BIN"); MSOL_OZONE="${MSOL_OZONE:-wayland}" ;;
+  flatpak) MSOL_EDGE=(flatpak run --command=/app/bin/edge com.microsoft.Edge); MSOL_OZONE="${MSOL_OZONE:-x11}" ;;
+  *) die "MSOL_ENGINE must be auto, private or flatpak (got '$MSOL_ENGINE')" ;;
+esac
+
+# Prints "id|name|url|icon|comment|group|default|official" per app, trimmed,
+# with defaults for missing columns (group More, default on, official site).
+read_apps() {
+  [[ -f "$MSOL_APPS_FILE" ]] || die "apps file not found: $MSOL_APPS_FILE"
+  sed -e 's/[[:space:]]#.*//' -e 's/^#.*//' -e '/^[[:space:]]*$/d' "$MSOL_APPS_FILE" |
+    awk -F'|' '{ for (i=1;i<=8;i++){ gsub(/^[ \t]+|[ \t]+$/, "", $i) }
+                 if ($6=="") $6="More"; if ($7=="") $7="on"; if ($8=="") $8="site"
+                 print $1"|"$2"|"$3"|"$4"|"$5"|"$6"|"$7"|"$8 }'
+}
+
+MSOL_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/msol"
+ENABLED_FILE="$MSOL_USER_DIR/enabled-apps"          # your choice of apps, one id per line
+ICON_STYLE_FILE="$MSOL_USER_DIR/icon-style"        # generic | official
+OFFICIAL_ICON_DIR="$HOME/.local/share/msol/icons/official"
+USER_ICON_DIR="$MSOL_USER_DIR/icons"               # your own icons: <id>.png / <id>.svg
+
+enabled_ids() { # ids that are shown: your saved choice, else the defaults in apps.conf
+  if [[ -f "$ENABLED_FILE" ]]; then
+    grep -v '^[[:space:]]*\(#\|$\)' "$ENABLED_FILE"
+  else
+    read_apps | awk -F'|' '$7=="on" { print $1 }'
+  fi
+}
+
+is_enabled() { enabled_ids | grep -qx -- "$1"; }
+
+icon_style() { cat "$ICON_STYLE_FILE" 2>/dev/null || echo generic; }
+
+app_field() { # app_field <id> <n>
+  read_apps | awk -F'|' -v id="$1" -v n="$2" '$1==id { print $n; found=1 } END { exit !found }'
+}
+
+# Reproduces Chromium's WM_CLASS for --app=URL windows:
+# host + "_" + path, path-illegal characters -> "_", leading/trailing "_" trimmed.
+app_name_for() { # Chromium's app name for --app=URL: host + "_" + path, '/' etc. -> '_'
+  local url="$1" rest host path
+  rest="${url#*://}"; rest="${rest%%\?*}"; rest="${rest%%#*}"
+  host="${rest%%/*}"; host="${host%%:*}"
+  path="/${rest#*/}"; [[ "$rest" == */* ]] || path="/"
+  printf '%s' "${host}_${path}" | tr '/\\:*?"<>|' '_________'
+}
+
+wm_class_for() { # X11 WM_CLASS: the app name with leading/trailing "_" trimmed
+  app_name_for "$1" | sed -e 's/^_*//' -e 's/_*$//'
+}
+
+# The id KDE sees for an --app window: Wayland app id or X11 WM_CLASS.
+window_id_for() {
+  if [[ "$MSOL_OZONE" == wayland && "$MSOL_ENGINE" == private ]]; then
+    # Wayland app id keeps the trailing "_" (seen: msedge-outlook.office.com__mail_-Default)
+    echo "msedge-$(app_name_for "$1")-Default"
+  else
+    wm_class_for "$1"
+  fi
+}
+
+scale_flags() {
+  [[ "$MSOL_OZONE" == x11 ]] || return 0
+  local s="$MSOL_SCALE"
+  if [[ "$s" == auto ]]; then
+    s="$(kreadconfig6 --file kwinrc --group Xwayland --key Scale 2>/dev/null || true)"
+  fi
+  # 1 or unset: KDE stretches X11 windows itself (or no scaling), so add nothing.
+  [[ -n "$s" && "$s" != 1 && "$s" != 1.0 ]] && echo "--force-device-scale-factor=$s"
+  return 0
+}
+
+# ---- event log (see msol-watch.py) ---------------------------------------------
+MSOL_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/msol"
+MSOL_EVENTS="$MSOL_STATE_DIR/events.log"
+MSOL_LOGGING="${MSOL_LOGGING:-on}"      # off = no event log, no watcher
+
+ev() { # ev <KIND> <message>
+  [[ "$MSOL_LOGGING" == on ]] || return 0
+  mkdir -p "$MSOL_STATE_DIR"
+  printf '%s  %-13s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$MSOL_EVENTS"
+}
+
+caller() { # what started msol, from its systemd unit: launcher, a menu entry, a terminal, ...
+  [[ -n "${MSOL_CALLER:-}" ]] && { echo "$MSOL_CALLER"; return; }
+  local unit; unit="$(sed -n 's|.*/||p' /proc/$$/cgroup 2>/dev/null | head -1)"
+  unit="$(printf '%b' "$unit")"                       # unescape \x2d -> -
+  case "$unit" in
+    *msol-launcher*)  echo "launcher" ;;
+    app-msol-*|app-msedge-*) local e="${unit#app-}"; e="${e%%@*}"; e="${e%.scope}"; e="${e%.service}"
+                      echo "menu/taskbar entry ${e%-[0-9]*}" ;;
+    *konsole*|*terminal*|*Terminal*) echo "terminal" ;;
+    *)                echo "${unit:-unknown}" ;;
+  esac
+}
+
+start_watcher() {
+  [[ "$MSOL_LOGGING" == on ]] || return 0
+  MSOL_PROFILE_DIR="$MSOL_PROFILE_DIR" setsid python3 "$HERE/msol-watch.py" </dev/null >/dev/null 2>&1 &
+}
+
+# Helper extension + native-messaging host: links that an app window opens in a
+# browser tab (e.g. Microsoft's app menu) open as app windows instead. Private
+# engine only: a Flatpak Edge cannot run the host program outside its sandbox.
+MSOL_LINKS="${MSOL_LINKS:-on}"
+EXT_ID="embkllcpilnlkleipfaldnmageiifmof"   # fixed by the "key" in extension/manifest.json
+
+link_flags() {
+  [[ "$MSOL_LINKS" == on && "$MSOL_ENGINE" == private && -f "$HERE/extension/manifest.json" ]] || return 0
+  # Native Edge reads host registrations from its per-user folder; the profile
+  # folder is written too for builds that look there.
+  local dir
+  for dir in "$HOME/.config/microsoft-edge/NativeMessagingHosts" "$MSOL_PROFILE_DIR/NativeMessagingHosts"; do
+  mkdir -p "$dir"
+  cat > "$dir/com.msol.open.json" <<JSON
+{
+  "name": "com.msol.open",
+  "description": "msol: open Microsoft app links as app windows",
+  "path": "$HERE/msol-native-host.py",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$EXT_ID/"]
+}
+JSON
+  done
+  echo "--load-extension=$HERE/extension"
+}
+
+edge() {
+  mkdir -p "$MSOL_PROFILE_DIR"
+  local scale links; scale="$(scale_flags)"; links="$(link_flags)"
+  start_watcher
+  [[ "$MSOL_ENGINE_SETTING" == auto && "$MSOL_ENGINE" == flatpak ]] &&
+    ev WARNING "msol's own Edge is not installed: using the Flatpak Edge (links from the app menu open in a full browser). Fix: msol edge-install"
+  exec "${MSOL_EDGE[@]}" \
+    ${links:+"$links"} \
+    ${scale:+"$scale"} \
+    --user-data-dir="$MSOL_PROFILE_DIR" \
+    --ozone-platform="$MSOL_OZONE" \
+    --class=msol-edge \
+    --no-first-run \
+    --disable-sync \
+    "${MSOL_EXTRA_FLAGS[@]}" "$@"
+}
+
+icon_for() { # icon_for <id> <fallback>: your icon > project icons/ > official (if chosen) > theme icon
+  local f dirs=("$USER_ICON_DIR" "$HERE/icons")
+  [[ "$(icon_style)" == official ]] && dirs+=("$OFFICIAL_ICON_DIR")
+  for d in "${dirs[@]}"; do
+    for f in "$d/$1.svg" "$d/$1.png"; do
+      [[ -f "$f" ]] && { echo "$f"; return; }
+    done
+  done
+  echo "$2"
+}
+
+cmd_launch() {
+  local id="${1:-}"; [[ -n "$id" ]] || die "usage: msol launch <id>"
+  local url; url="$(app_field "$id" 3)" || die "unknown app '$id' (see: msol list)"
+  ev LAUNCH "$id from $(caller) (engine=$MSOL_ENGINE, edge running=$(edge_running))"
+  edge --app="$url"
+}
+
+cmd_signin() {
+  # An app window in the shared instance: sign in to Microsoft here and tick
+  # "Stay signed in". (An app window, not a full browser window, so it is not
+  # mistaken for your everyday Edge.) Pass --browser for a full browser window,
+  # e.g. to manage the Edge profile or its settings.
+  if [[ "${1:-}" == "--browser" ]]; then
+    ev SIGNIN-OPEN "browser window from $(caller)"
+    edge "${2:-https://www.office.com/}"
+  else
+    ev SIGNIN-OPEN "sign-in window from $(caller)"
+    edge --app="${1:-https://www.office.com/login}"
+  fi
+}
+
+# Opens Edge's own account sign-in page (edge://unified-signin) in a small
+# window. Edge refuses edge:// pages on the command line, so the page is set as
+# the profile's start page instead; msol always opens apps with a URL, so the
+# start page only ever shows here. Edge must not be running: it would ignore the
+# start page and overwrite the edited preferences when it exits.
+cmd_signin_edge() {
+  [[ "$(edge_running)" == no ]] || { echo "msol: close all Microsoft app windows first" >&2; exit 3; }
+  mkdir -p "$MSOL_PROFILE_DIR/Default"
+  python3 - "$MSOL_PROFILE_DIR/Default/Preferences" <<'PY'
+import json, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+d = json.loads(p.read_text()) if p.exists() else {}
+d.setdefault("session", {}).update({"restore_on_startup": 4, "startup_urls": ["edge://unified-signin"]})
+d.setdefault("bookmark_bar", {})["show_on_all_tabs"] = False   # no favorites bar
+d.setdefault("profile", {})["exit_type"] = "Normal"             # no "restore pages" bubble
+p.write_text(json.dumps(d))
+PY
+  ev SIGNIN-OPEN "Edge account sign-in (edge://unified-signin) from $(caller)"
+  edge --window-size=760,720 --hide-crash-restore-bubble
+}
+
+edge_running() {
+  pgrep -f "(/app/extra|/msedge)/msedge .*--user-data-dir=$MSOL_PROFILE_DIR( |\$)" >/dev/null && echo yes || echo no
+}
+
+cmd_open_url() { # open any https link in a window of its own (used by the helper extension)
+  local url="${1:-}"
+  [[ "$url" == https://* ]] || die "usage: msol open-url https://..."
+  ev LINK "${url%%\?*} -> own window (from $(MSOL_CALLER="${MSOL_CALLER:-}" caller))"
+  edge --app="$url"
+}
+
+cmd_note() {
+  local text="$*"
+  [[ -n "$text" ]] || { read -r -p "Note: " text; }
+  [[ -n "$text" ]] || die "usage: msol note <text>"
+  MSOL_LOGGING=on ev NOTE "$text"
+  echo "Noted."
+}
+
+cmd_log() {
+  [[ -f "$MSOL_EVENTS" ]] || die "no events yet ($MSOL_EVENTS)"
+  if [[ "${1:-}" == -f ]]; then tail -n 30 -f "$MSOL_EVENTS"; else tail -n "${1:-60}" "$MSOL_EVENTS"; fi
+}
+
+cmd_ids() {
+  local name url
+  while IFS='|' read -r _ name url _; do
+    printf '%s|%s\n' "$name" "$(window_id_for "$url")"
+  done < <(read_apps)
+  printf '%s|%s\n' "Sign-in window" "$(window_id_for https://www.office.com/login)"
+}
+
+write_desktop() { # write_desktop <file> <name> <comment> <exec> <icon> <wmclass> [extra line]
+  cat > "$1" <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=$2
+Comment=$3
+Exec=$4
+TryExec=$(t="${4#\"}"; echo "${t%%\"*}")
+Icon=$5
+Terminal=false
+Categories=Office;Network;
+StartupNotify=true
+StartupWMClass=$6
+X-MSOL=true
+${7:-}
+EOF
+}
+
+# App menu entries are named after the window id ("<window id>.desktop"): KWin
+# finds a window's icon (the one in its title bar) through the menu file of
+# exactly that name; the taskbar then matches it directly too.
+cmd_install() {
+  mkdir -p "$MSOL_DESKTOP_DIR"
+  local id name url icon comment n=0 removed=0 enabled wid f keep
+  enabled="$(enabled_ids)"
+  keep=" msol-launcher.desktop msol-signin.desktop msol-edge.desktop "
+  while IFS='|' read -r id name url icon comment _; do
+    grep -qx -- "$id" <<<"$enabled" || continue
+    wid="$(window_id_for "$url")"
+    write_desktop "$MSOL_DESKTOP_DIR/$wid.desktop" "$name" "$comment (Microsoft web app)" \
+      "\"$SELF\" launch $id" "$(icon_for "$id" "$icon")" "$wid" "X-MSOL-App=$id"
+    keep+="$wid.desktop "; n=$((n+1))
+  done < <(read_apps)
+  write_desktop "$MSOL_DESKTOP_DIR/msol-signin.desktop" "Microsoft Account (sign-in)" \
+    "Sign in once for all Microsoft web apps" "\"$HERE/msol-launcher.py\" --sign-in" \
+    "$(icon_for signin system-users)" "msol-launcher"
+  write_desktop "$MSOL_DESKTOP_DIR/msol-launcher.desktop" "Microsoft 365 Launcher" \
+    "Start screen for all Microsoft web apps" "\"$HERE/msol-launcher.py\"" \
+    "$(icon_for launcher applications-office)" "msol-launcher"
+  # Hidden: an icon for msol's own browser windows (e.g. the Edge sign-in page).
+  write_desktop "$MSOL_DESKTOP_DIR/msol-edge.desktop" "Microsoft 365 (browser window)" \
+    "Browser window of the msol Edge profile" "\"$SELF\" signin --browser" \
+    "$(icon_for m365 applications-office)" "msol-edge" "NoDisplay=true"
+  # Remove entries of apps you turned off, and old-style msol-<id>.desktop files.
+  for f in "$MSOL_DESKTOP_DIR"/*.desktop; do
+    [[ -f "$f" && "$keep" != *" ${f##*/} "* ]] || continue
+    grep -q '^X-MSOL=true' "$f" && { rm -f "$f"; removed=$((removed+1)); }
+  done
+  command -v update-desktop-database >/dev/null && update-desktop-database "$MSOL_DESKTOP_DIR" 2>/dev/null || true
+  command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true
+  echo "Installed $n app launchers + sign-in entry + 'Microsoft 365 Launcher' in $MSOL_DESKTOP_DIR"
+  (( removed )) && echo "Removed $removed old or turned-off launchers."
+  return 0
+}
+
+msol_edge_running() { # main Edge processes on the msol profile (not helpers)
+  local pid
+  for pid in $(pgrep -f "(/app/extra|/msedge)/msedge .*--user-data-dir=$MSOL_PROFILE_DIR( |\$)" 2>/dev/null); do
+    tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--type=' || return 0
+  done
+  return 1
+}
+
+# Edge's own per-user folders. The private Edge uses them only for the link
+# helper and its account cache; a system-wide native Edge shares them.
+system_edge_installed() { compgen -G '/opt/microsoft/msedge*' >/dev/null; }
+
+cmd_uninstall() { # uninstall [--all] [--yes]
+  local all=0 yes=0 a f n=0 p removed=()
+  for a in "$@"; do
+    case "$a" in
+      --all) all=1 ;; --yes|-y) yes=1 ;;
+      *) die "usage: msol uninstall [--all] [--yes]" ;;
+    esac
+  done
+  local data_dir="$HOME/.local/share/msol" edge_cfg="$HOME/.config/microsoft-edge" edge_cache="$HOME/.cache/Microsoft/Edge"
+  local wipe=()
+  if (( all )); then
+    wipe=("$MSOL_PROFILE_DIR" "$MSOL_EDGE_DIR" "$OFFICIAL_ICON_DIR" "$MSOL_USER_DIR" "$MSOL_STATE_DIR")
+    system_edge_installed || wipe+=("$edge_cfg" "$edge_cache")
+    msol_edge_running && die "Microsoft app windows are still open. Close them (or use the launcher's Uninstall…), then try again."
+    if (( ! yes )); then
+      echo "This removes msol's menu entries and permanently deletes:"
+      for p in "${wipe[@]}"; do [[ -e "$p" ]] && printf '  %-60s %s\n' "$p" "$(du -sh "$p" 2>/dev/null | cut -f1)"; done
+      echo "That signs you out of all Microsoft apps and removes msol's own Edge,"
+      echo "your app choices, icons and the event log. It cannot be undone."
+      read -r -p "Type 'yes' to continue: " a
+      [[ "$a" == yes ]] || { echo "Cancelled, nothing removed."; return 1; }
+    fi
+  fi
+
+  # Menu entries (every msol-made .desktop file, whatever its name).
+  for f in "$MSOL_DESKTOP_DIR"/*.desktop; do
+    [[ -f "$f" ]] && grep -q '^X-MSOL=true' "$f" && { rm -f "$f"; n=$((n+1)); }
+  done
+  removed+=("$n menu entries")
+  # Link helper registration (the extension itself lives in this folder).
+  for f in "$edge_cfg/NativeMessagingHosts/com.msol.open.json" "$MSOL_PROFILE_DIR/NativeMessagingHosts/com.msol.open.json"; do
+    [[ -f "$f" ]] && rm -f "$f"
+  done
+  rmdir "$edge_cfg/NativeMessagingHosts" "$edge_cfg" 2>/dev/null || true
+  removed+=("the link helper registration")
+  command -v update-desktop-database >/dev/null && update-desktop-database "$MSOL_DESKTOP_DIR" 2>/dev/null || true
+  command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true
+
+  if (( all )); then
+    # Stop the event-log watcher first (it unloads its KWin script on SIGTERM).
+    pkill -TERM -f "^[^ ]*python3 $HERE/msol-watch\.py\$" 2>/dev/null && sleep 1 || true
+    for p in "${wipe[@]}"; do
+      [[ -e "$p" ]] || continue
+      [[ "$p" == "$HOME"/?* ]] || { echo "Skipped $p (not inside your home folder)"; continue; }
+      rm -rf -- "$p" && removed+=("$p")
+    done
+    rmdir "$data_dir/icons" "$data_dir" "$HOME/.cache/Microsoft" 2>/dev/null || true
+    [[ -d "$data_dir" ]] || removed+=("$data_dir")
+  fi
+
+  echo "Removed:"; printf '  %s\n' "${removed[@]}"
+  if (( all )); then
+    system_edge_installed && echo "Kept $edge_cfg and $edge_cache: a system-wide Edge uses them too."
+    echo "msol itself is still in $HERE; delete that folder to remove it completely."
+    echo "To use msol again: 'msol edge-install' (its own Edge; without it msol falls back to"
+    echo "the Flatpak Edge, where app-menu links open in a full browser), then 'msol install'."
+  else
+    echo "Kept your sign-in ($MSOL_PROFILE_DIR), msol's Edge, app choices and event log."
+    echo "Run 'msol install' to bring the menu entries back, or 'msol uninstall --all' to remove everything."
+  fi
+}
+
+cmd_list() {
+  local id name url group enabled
+  enabled="$(enabled_ids)"
+  printf '%-3s %-14s %-22s %-15s %s\n' ON ID NAME GROUP URL
+  while IFS='|' read -r id name url _ _ group _; do
+    printf '%-3s %-14s %-22s %-15s %s\n' "$(grep -qx -- "$id" <<<"$enabled" && echo '*' || echo '')" \
+      "$id" "$name" "$group" "$url"
+  done < <(read_apps)
+  echo; echo "* = shown in the launcher and menu. Change with: msol enable|disable <id|group|all|defaults>"
+}
+
+# enable/disable apps by id or group name (case-insensitive), or all / defaults.
+cmd_set_enabled() { # cmd_set_enabled on|off <id|group|all|defaults>...
+  local mode="$1"; shift
+  [[ $# -gt 0 ]] || die "usage: msol enable|disable <id|group|all|defaults>..."
+  local current; current="$(enabled_ids)"
+  local arg ids matched
+  for arg in "$@"; do
+    case "${arg,,}" in
+      defaults) current="$(read_apps | awk -F'|' '$7=="on"{print $1}')"; continue ;;
+      all)      ids="$(read_apps | cut -d'|' -f1)" ;;
+      *)        ids="$(read_apps | awk -F'|' -v a="${arg,,}" 'tolower($1)==a || tolower($6)==a {print $1}')" ;;
+    esac
+    [[ -n "$ids" ]] || die "no app or group called '$arg' (see: msol list)"
+    if [[ "$mode" == on ]]; then
+      current="$(printf '%s\n%s\n' "$current" "$ids" | grep -v '^$' | awk '!s[$0]++')"
+    else
+      current="$(grep -vxF -f <(printf '%s\n' "$ids") <<<"$current" || true)"
+    fi
+    matched+="$(tr '\n' ' ' <<<"$ids")"
+  done
+  mkdir -p "$MSOL_USER_DIR"
+  { echo "# Apps shown by msol (one id per line). Edit with: msol enable|disable"; printf '%s\n' "$current"; } > "$ENABLED_FILE"
+  ev APPS "$( [[ $mode == on ]] && echo enabled || echo disabled ): ${matched:-defaults}"
+  cmd_install >/dev/null
+  echo "Now shown: $(enabled_ids | tr '\n' ' ')"
+}
+
+# Icon style: generic theme icons, or Microsoft's official icons (downloaded once).
+cmd_icons() {
+  case "${1:-status}" in
+    status)  echo "icon style: $(icon_style)"
+             echo "official icons downloaded: $(ls "$OFFICIAL_ICON_DIR" 2>/dev/null | wc -l) (in $OFFICIAL_ICON_DIR)"
+             echo "your own icons: $(ls "$USER_ICON_DIR" 2>/dev/null | wc -l) (in $USER_ICON_DIR, named <id>.png or <id>.svg)" ;;
+    generic) mkdir -p "$MSOL_USER_DIR"; echo generic > "$ICON_STYLE_FILE"; ev ICONS "style generic"
+             cmd_install >/dev/null; echo "Using generic icons." ;;
+    official)
+      local refresh=""; [[ "${2:-}" == --refresh ]] && refresh=1
+      mkdir -p "$MSOL_USER_DIR" "$OFFICIAL_ICON_DIR"
+      echo "Fetching Microsoft's icons (Fluent icon CDN and the apps' own sites)…"
+      read_apps | awk -F'|' '{print $1"|"$8"|"$3}' |
+        MSOL_REFRESH="$refresh" python3 "$HERE/msol-icons.py" "$OFFICIAL_ICON_DIR"
+      echo official > "$ICON_STYLE_FILE"; ev ICONS "style official"
+      cmd_install >/dev/null
+      echo "Using official icons. Apps without one keep their generic icon." ;;
+    *) die "usage: msol icons [status|generic|official [--refresh]]" ;;
+  esac
+}
+
+# Downloads the newest official Edge .deb from packages.microsoft.com, verifies
+# it (repository signature -> Packages index -> package SHA256) and unpacks it
+# into $MSOL_EDGE_DIR/<version>. No root, no apt repository, no system changes.
+cmd_edge_install() {
+  local repo="https://packages.microsoft.com/repos/edge" pkg="microsoft-edge-$MSOL_EDGE_CHANNEL"
+  local work; work="$(mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/msol-edge.XXXXXX")"
+  trap 'rm -rf "$work"' RETURN
+  command -v gpgv >/dev/null || die "gpgv is needed to verify the download"
+
+  echo "Fetching Microsoft's signing key and repository index…"
+  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > "$work/microsoft.gpg"
+  curl -fsSL "$repo/dists/stable/InRelease" -o "$work/InRelease"
+  gpgv --keyring "$work/microsoft.gpg" "$work/InRelease" 2>/dev/null \
+    || die "repository signature check failed"
+  echo "  repository signature OK"
+
+  curl -fsSL "$repo/dists/stable/main/binary-amd64/Packages.gz" -o "$work/Packages.gz"
+  local want got
+  want="$(awk '/^SHA256:/{s=1;next} /^[A-Z]/{s=0} s && $3=="main/binary-amd64/Packages.gz"{print $1}' "$work/InRelease")"
+  got="$(sha256sum "$work/Packages.gz" | cut -d' ' -f1)"
+  [[ -n "$want" && "$want" == "$got" ]] || die "package index checksum mismatch"
+
+  local line version size file sha
+  line="$(gunzip -c "$work/Packages.gz" | awk -v p="$pkg" 'BEGIN{RS="";FS="\n"}
+    { v=f=s=h=n=""; for(i=1;i<=NF;i++){ split($i,a,": ");
+        if(a[1]=="Package")n=a[2]; if(a[1]=="Version")v=a[2]; if(a[1]=="Filename")f=a[2];
+        if(a[1]=="Size")s=a[2]; if(a[1]=="SHA256")h=a[2] }
+      if(n==p) print v, s, f, h }' | sort -V | tail -1)"
+  read -r version size file sha <<<"$line"
+  [[ -n "${sha:-}" ]] || die "no $pkg package found in the repository"
+
+  local current=""; [[ -L "$MSOL_EDGE_DIR/current" ]] && current="$(basename "$(readlink "$MSOL_EDGE_DIR/current")")"
+  if [[ "$current" == "$version" ]]; then
+    echo "Edge $version is already installed and current."; return 0
+  fi
+
+  echo "Downloading $pkg $version ($((size/1024/1024)) MiB)…"
+  curl -fL --progress-bar "$repo/$file" -o "$work/edge.deb"
+  [[ "$(sha256sum "$work/edge.deb" | cut -d' ' -f1)" == "$sha" ]] || die "package checksum mismatch"
+  echo "  package checksum OK"
+
+  mkdir -p "$MSOL_EDGE_DIR"
+  rm -rf "$MSOL_EDGE_DIR/$version.tmp"
+  dpkg-deb -x "$work/edge.deb" "$MSOL_EDGE_DIR/$version.tmp"
+  mv -T "$MSOL_EDGE_DIR/$version.tmp" "$MSOL_EDGE_DIR/$version"
+  ln -sfn "$version" "$MSOL_EDGE_DIR/current"
+  echo "Installed Edge $version in $MSOL_EDGE_DIR/$version (now 'current')."
+  [[ -n "$current" ]] && echo "Previous version $current is kept; delete it from $MSOL_EDGE_DIR when you no longer need it."
+  echo "Restart the Microsoft apps to use it, and run 'msol install' to refresh the launchers."
+}
+
+cmd_engine() {
+  echo "engine:  $MSOL_ENGINE"
+  echo "setting: $MSOL_ENGINE_SETTING"
+  echo "private: $([[ -x "$PRIVATE_EDGE_BIN" ]] && echo installed || echo missing)"
+  echo "binary:  ${MSOL_EDGE[*]}"
+  echo "display: $MSOL_OZONE"
+  [[ "$MSOL_ENGINE" == private ]] && "${MSOL_EDGE[0]}" --version 2>/dev/null || true
+}
+
+case "${1:-}" in
+  launch)    shift; cmd_launch "$@" ;;
+  edge-install|edge-update) cmd_edge_install ;;
+  engine)    cmd_engine ;;
+  note)      shift; cmd_note "$@" ;;
+  ev)        shift; ev "${1:?kind}" "${2:-}" ;;
+  open-url)  shift; cmd_open_url "$@" ;;
+  log)       shift; cmd_log "$@" ;;
+  ids)       cmd_ids ;;
+  enable)    shift; cmd_set_enabled on "$@" ;;
+  disable)   shift; cmd_set_enabled off "$@" ;;
+  icons)     shift; cmd_icons "$@" ;;
+  signin)    shift; cmd_signin "$@" ;;
+  signin-edge) cmd_signin_edge ;;
+  install)   cmd_install ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
+  list)      cmd_list ;;
+  gui)       exec "$HERE/msol-launcher.py" ;;
+  wmclass)   wm_class_for "${2:?url}" ;;
+  version|--version) cat "$HERE/VERSION" 2>/dev/null || echo dev ;;
+  *) cat <<EOF
+Usage: msol <command>
+  install        create a menu entry per app in apps.conf (+ sign-in and launcher entries)
+  gui            open the Microsoft 365 Launcher (tiles + sign-in status)
+  signin [URL]   open a sign-in window in the shared profile (--browser for a full window)
+  signin-edge    open Edge's own account sign-in page (sign the profile in, for automatic sign-in)
+  launch <id>    open one app as its own window, e.g. 'msol launch word'
+  open-url <url> open any https link as a window of its own
+  list           show all apps, their group, and which ones are shown
+  enable <x>..   show apps: an id, a group (e.g. 'Power Platform'), 'all' or 'defaults'
+  disable <x>..  hide apps the same way
+  icons [style]  icon style: 'generic' or 'official' (Microsoft's icons, fetched once); 'status'
+  uninstall      remove the menu entries and link helper (keeps your sign-in and settings)
+  uninstall --all  also delete the sign-in profile, msol's Edge, icons, settings and event log
+                 (asks first; add --yes to skip the question)
+  edge-install   download, verify and unpack msol's own native Edge (no root)
+  edge-update    same as edge-install: fetch the newest version if there is one
+  engine         show which Edge msol uses (private or flatpak)
+  note <text>    add your own line to the event log, e.g. 'msol note closed all, reopened Word'
+  log [N|-f]     show the last N events (default 60), or follow them live with -f
+  version        show msol's version
+EOF
+     [[ -z "${1:-}" ]] || exit 1 ;;
+esac

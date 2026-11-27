@@ -1,0 +1,45 @@
+name: Release
+
+# Push a tag like v1.2.3 to build the .deb and publish a GitHub release with it.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.49.0
+      - name: Build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          export VERSION="${TAG#v}"
+          echo "$VERSION" > VERSION
+          mkdir -p dist
+          "$(go env GOPATH)/bin/nfpm" package --config packaging/nfpm.yaml --packager deb --target dist/
+          (cd dist && sha256sum ./*.deb > SHA256SUMS)
+      - name: Smoke-test
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ./dist/*.deb
+          msol version
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/*.deb dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "msol $TAG" --generate-notes --verify-tag

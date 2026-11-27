@@ -1,0 +1,77 @@
+# Builds the msol .deb with nfpm (https://nfpm.goreleaser.com):
+#   VERSION=1.2.3 nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
+# Run from the repository root. Microsoft Edge is not included (Microsoft does
+# not allow redistributing it): each user's launcher downloads it on first start.
+name: msol
+arch: all
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: web
+priority: optional
+maintainer: LemcheNET <https://github.com/LemcheNET>
+description: |
+  Microsoft 365 web apps as separate windows on Linux, with one shared sign-in.
+  msol runs Word, Excel, Outlook, Teams and the other Microsoft web apps in
+  their own windows, each with its own taskbar entry and icon, sharing one
+  dedicated Microsoft Edge profile so you sign in once. Made for KDE Plasma.
+  Microsoft Edge itself is downloaded per user from Microsoft on first start.
+homepage: https://lemchenet.github.io/msol/
+license: MIT
+
+depends:
+  - bash
+  - python3 (>= 3.10)
+  - python3-pyqt6
+  - libqt6svg6
+  - curl
+  - gpg
+  - gpgv
+  - dpkg
+  - procps
+  - qdbus-qt6
+recommends:
+  - kwin-wayland | kwin-x11
+  - libkf6service-bin
+  - libkf6config-bin
+  - desktop-file-utils
+suggests:
+  - flatpak
+
+contents:
+  - src: ./msol
+    dst: /usr/lib/msol/msol
+    file_info: {mode: 0755}
+  - src: ./msol-launcher.py
+    dst: /usr/lib/msol/msol-launcher.py
+    file_info: {mode: 0755}
+  - src: ./msol-native-host.py
+    dst: /usr/lib/msol/msol-native-host.py
+    file_info: {mode: 0755}
+  - src: ./msol-watch.py
+    dst: /usr/lib/msol/msol-watch.py
+    file_info: {mode: 0644}
+  - src: ./msol-icons.py
+    dst: /usr/lib/msol/msol-icons.py
+    file_info: {mode: 0644}
+  - src: ./apps.conf
+    dst: /usr/lib/msol/apps.conf
+    file_info: {mode: 0644}
+  - src: ./VERSION
+    dst: /usr/lib/msol/VERSION
+    file_info: {mode: 0644}
+  - src: ./extension/
+    dst: /usr/lib/msol/extension/
+    type: tree
+  - src: /usr/lib/msol/msol
+    dst: /usr/bin/msol
+    type: symlink
+  - src: ./packaging/msol-launcher.desktop
+    dst: /usr/share/applications/msol-launcher.desktop
+    file_info: {mode: 0644}
+  - src: ./README.md
+    dst: /usr/share/doc/msol/README.md
+    file_info: {mode: 0644}
+  - src: ./LICENSE
+    dst: /usr/share/doc/msol/copyright
+    file_info: {mode: 0644}

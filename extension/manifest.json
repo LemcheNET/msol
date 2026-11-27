@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "msol: open Microsoft apps in their own windows",
+  "version": "1.0",
+  "description": "When a Microsoft app window opens another Microsoft app (for example from the app launcher menu), open it as its own app window instead of a browser tab.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqX906/A8o3z5oGqnsIE2NzNubXKS3z8HV76hELlgsAadxh7eAiIjcHB0qdziVH8d6qUviCRacG0qWeYfmCjxlOzSYGQ3JMvG7+uYvvuGgeH83Qs+5D9EvnkxCERwI7sxpK7v7/QhEsJCVjZZb06dGe6vxK7RDCs71y+dlUiOre8qz8WRpvz/u3SjoADDaaABbzxRsiQJ/r88p3c+pY5anLYmKkOF57bqDIiSgt626slYrFf7LJnZT2C0D+yA8p8Ni+Eobu0t9gIxoqLIcq/4O7XKKooU/kYzSHkurPwfPeUWdPa9DdHe2B37OlQbpunNV7BWvsekQVWjmLtVaq31oQIDAQAB",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "tabs", "webNavigation",
+    "nativeMessaging"
+  ]
+}

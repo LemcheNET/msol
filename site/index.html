@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>msol: Microsoft 365 web apps as real windows on Linux</title>
+<meta name="description" content="msol runs Word, Excel, Outlook, Teams and the other Microsoft 365 web apps in their own windows on KDE Plasma, sharing one sign-in.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='13' height='13' rx='3' fill='%233b6fd8'/%3E%3Crect x='17' y='2' width='13' height='13' rx='3' fill='%2348a868'/%3E%3Crect x='2' y='17' width='13' height='13' rx='3' fill='%23e0913a'/%3E%3Crect x='17' y='17' width='13' height='13' rx='3' fill='%238a63c9'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1c1d1f; --muted: #5d6066; --card: #ffffff; --line: #e3e3df;
+    --accent: #3b6fd8; --accent-fg: #ffffff; --code: #eeeeea;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16171a; --fg: #ececec; --muted: #a2a5ab; --card: #1f2024; --line: #2d2f34;
+            --accent: #7aa2f7; --accent-fg: #0d1117; --code: #26282d; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 17px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans", Ubuntu, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; text-decoration: none; color: var(--fg); }
+  .brand svg { width: 28px; height: 28px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 22px; font-size: 15px; }
+  nav a:hover { color: var(--fg); }
+
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; padding: 48px 0 64px; }
+  .hero h1 { font-size: clamp(34px, 4.6vw, 52px); line-height: 1.08; letter-spacing: -0.02em; margin: 0 0 18px; }
+  .hero p.lead { font-size: 19px; color: var(--muted); margin: 0 0 28px; max-width: 34em; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-block; padding: 12px 20px; border-radius: 10px; font-weight: 600; text-decoration: none; font-size: 16px; }
+  .btn.primary { background: var(--accent); color: var(--accent-fg); }
+  .btn.secondary { border: 1px solid var(--line); color: var(--fg); background: var(--card); }
+  .shot { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(0,0,0,.14); width: 100%; height: auto; display: block; }
+
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 30px; letter-spacing: -0.01em; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 42em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .card h3 { margin: 0 0 8px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+  ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; max-width: 760px; }
+  ol.steps li { counter-increment: step; position: relative; padding: 18px 20px 18px 64px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+  ol.steps li::before { content: counter(step); position: absolute; left: 20px; top: 17px; width: 30px; height: 30px; border-radius: 50%;
+                        background: var(--accent); color: var(--accent-fg); font-weight: 700; display: grid; place-items: center; font-size: 15px; }
+  ol.steps strong { display: block; margin-bottom: 4px; }
+  pre, code { font-family: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 14.5px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 10px; overflow-x: auto; margin: 10px 0 0; }
+  :not(pre) > code { background: var(--code); padding: 1px 6px; border-radius: 6px; }
+
+  dl.faq { max-width: 780px; margin: 0; }
+  dl.faq dt { font-weight: 650; margin-top: 22px; }
+  dl.faq dd { margin: 6px 0 0; color: var(--muted); }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0 48px; color: var(--muted); font-size: 14px; }
+  footer p { margin: 6px 0; }
+
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; padding-top: 24px; }
+    .grid { grid-template-columns: 1fr; }
+    nav a:not(.gh) { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="13" height="13" rx="3" fill="#3b6fd8"/><rect x="17" y="2" width="13" height="13" rx="3" fill="#48a868"/><rect x="2" y="17" width="13" height="13" rx="3" fill="#e0913a"/><rect x="17" y="17" width="13" height="13" rx="3" fill="#8a63c9"/></svg>
+      msol
+    </a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+      <a class="gh" href="https://github.com/LemcheNET/msol">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Microsoft 365 on Linux, one window per app.</h1>
+      <p class="lead">msol opens Word, Excel, Outlook, Teams and the other Microsoft 365 web apps
+        in windows of their own, each with its own taskbar entry and icon, just like installed apps.
+        Sign in once and every app is signed in, and you stay signed in after a restart.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/LemcheNET/msol/releases/latest">Download the .deb</a>
+        <a class="btn secondary" href="https://github.com/LemcheNET/msol">Source on GitHub</a>
+      </div>
+    </div>
+    <img class="shot" src="launcher.png" width="640" height="640"
+         alt="The msol launcher: app tiles for Microsoft 365 Copilot, Outlook, Calendar, Word, Excel, PowerPoint, OneNote, OneDrive and Teams, with the sign-in status below.">
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Feels like installed apps</h2>
+    <p class="sub">The apps are Microsoft's own web apps. msol is the small layer around them that makes them
+      behave like desktop software on KDE Plasma.</p>
+    <div class="grid">
+      <div class="card"><h3>A window per app</h3><p>Every app gets its own window, taskbar entry, title-bar icon and menu entry. Alt+Tab between Outlook and Word like on any desktop.</p></div>
+      <div class="card"><h3>Sign in once</h3><p>All apps share one dedicated Edge profile, so one sign-in covers them all, including work accounts with multi-factor sign-in.</p></div>
+      <div class="card"><h3>Stays signed in</h3><p>Close every app or reboot: you are still signed in next time. The guided sign-in sets up Edge's automatic sign-in for work accounts.</p></div>
+      <div class="card"><h3>Sharp on Wayland</h3><p>Apps run natively on Wayland, so text stays crisp with fractional scaling and the GPU drivers of your system are used.</p></div>
+      <div class="card"><h3>Links open as apps</h3><p>Open Excel from Outlook's app menu and it opens as the Excel app window, not as a browser tab.</p></div>
+      <div class="card"><h3>Pick your apps</h3><p>Office apps are shown by default; add SharePoint, Loop, Planner, Power BI, Viva and more, with generic or official icons.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">For Debian, Ubuntu, Kubuntu and KDE neon with KDE Plasma 6 on Wayland.</p>
+    <ol class="steps">
+      <li><strong>Download the package</strong>Get <code>msol_&lt;version&gt;_all.deb</code> from the
+        <a href="https://github.com/LemcheNET/msol/releases/latest">latest release</a>.</li>
+      <li><strong>Install it</strong>
+        <pre><code>sudo apt install ./msol_*_all.deb</code></pre></li>
+      <li><strong>Open “Microsoft 365 Launcher”</strong>from your application menu. On first start it offers to
+        download Microsoft Edge for msol (about 170&nbsp;MB, straight from Microsoft, signature-checked) and
+        creates a menu entry per app.</li>
+      <li><strong>Sign in</strong>Click <em>Set up automatic sign-in…</em> and follow the steps. After that, every app opens signed in.</li>
+    </ol>
+    <p class="sub" style="margin-top:28px">Prefer the source? Clone the repository and run <code>./msol edge-install</code>,
+      then <code>./msol install</code>. See the <a href="https://github.com/LemcheNET/msol#readme">README</a>.</p>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <dl class="faq">
+      <dt>Why isn't Microsoft Edge included in the package?</dt>
+      <dd>Microsoft does not allow redistributing Edge. msol downloads the official package from
+        packages.microsoft.com for each user, checks Microsoft's signature and checksums, and unpacks it in your
+        home folder. It adds no apt repository and needs no administrator rights. Update it with <code>msol edge-update</code>.</dd>
+      <dt>Does it touch my normal browser?</dt>
+      <dd>No. msol uses its own Edge profile, separate from any Edge or other browser you use, and never syncs your
+        everyday profile into it.</dd>
+      <dt>Where is my password stored?</dt>
+      <dd>msol never sees it. You sign in on Microsoft's own pages inside Edge, and the sign-in stays in the Edge
+        profile on your computer (<code>~/.local/share/msol/edge-profile</code>).</dd>
+      <dt>Does it work on GNOME or other desktops?</dt>
+      <dd>msol is made for KDE Plasma: separate taskbar entries, title-bar icons and clean closing use KDE's window
+        manager. Other desktops are not supported yet.</dd>
+      <dt>How do I remove it?</dt>
+      <dd>In the launcher, choose <em>Uninstall…</em> → <em>Remove everything</em> (or run <code>msol uninstall --all</code>),
+        then <code>sudo apt remove msol</code>.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>msol is open source under the MIT licence · <a href="https://github.com/LemcheNET/msol">LemcheNET/msol</a></p>
+    <p>msol is an independent project. It is not made, endorsed or supported by Microsoft. Microsoft, Microsoft 365,
+      Microsoft Edge, Word, Excel, PowerPoint, Outlook, OneNote, OneDrive and Teams are trademarks of the Microsoft
+      group of companies.</p>
+  </div>
+</footer>
+</body>
+</html>
