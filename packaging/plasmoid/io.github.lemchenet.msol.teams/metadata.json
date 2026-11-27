@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [{ "Name": "LemcheNET" }],
+        "Category": "Online Services",
+        "Description": "Show, hide or start Microsoft Teams (msol). Hidden, Teams keeps running and notifying.",
+        "Icon": "im-user",
+        "Id": "io.github.lemchenet.msol.teams",
+        "License": "MIT",
+        "Name": "Teams (msol)",
+        "Version": "1.0",
+        "Website": "https://products.lemche.net/msol/"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

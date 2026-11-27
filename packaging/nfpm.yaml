@@ -72,6 +72,9 @@ contents:
   - src: /usr/lib/msol/msol
     dst: /usr/bin/msol
     type: symlink
+  - src: ./packaging/plasmoid/io.github.lemchenet.msol.teams/
+    dst: /usr/share/plasma/plasmoids/io.github.lemchenet.msol.teams/
+    type: tree
   - src: ./packaging/msol-launcher.desktop
     dst: /usr/share/applications/msol-launcher.desktop
     file_info: {mode: 0644}

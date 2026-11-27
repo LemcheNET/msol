@@ -200,11 +200,90 @@ icon_for() { # icon_for <id> <fallback>: your icon > project icons/ > official (
   echo "$2"
 }
 
-cmd_launch() {
-  local id="${1:-}"; [[ -n "$id" ]] || die "usage: msol launch <id>"
+cmd_launch() { # launch <id> [--hidden]
+  local id="${1:-}"; [[ -n "$id" ]] || die "usage: msol launch <id> [--hidden]"
   local url; url="$(app_field "$id" 3)" || die "unknown app '$id' (see: msol list)"
-  ev LAUNCH "$id from $(caller) (engine=$MSOL_ENGINE, edge running=$(edge_running))"
+  ev LAUNCH "$id from $(caller) (engine=$MSOL_ENGINE, edge running=$(edge_running))${2:+ $2}"
+  if [[ "${2:-}" == --hidden ]]; then
+    # Hide the window as soon as it appears (e.g. Teams at login, kept in the widget).
+    ( for _ in $(seq 60); do
+        [[ "$(cmd_window "$id" hide 2>/dev/null)" == none ]] || exit 0
+        sleep 1
+      done ) </dev/null >/dev/null 2>&1 &
+    disown
+  fi
   edge --app="$url"
+}
+
+# Show, hide or close an app's window through KWin, found by its window id.
+# Hidden = minimised and left out of the taskbar (the Teams widget brings it back).
+# Prints: none | visible | hidden (the state before the action).
+kwin_qdbus() { "$(command -v qdbus6 || command -v qdbus-qt6 || echo qdbus)" org.kde.KWin "$@"; }
+
+cmd_window() { # window <id> show|hide|toggle|close|status
+  local id="${1:-}" action="${2:-status}"
+  [[ -n "$id" ]] || die "usage: msol window <id> show|hide|toggle|close|status"
+  case "$action" in show|hide|toggle|close|status) ;; *) die "unknown action '$action'" ;; esac
+  local url; url="$(app_field "$id" 3)" || die "unknown app '$id' (see: msol list)"
+  local wid nonce js name since result
+  wid="$(window_id_for "$url")"
+  nonce="msolwin$$$RANDOM"
+  mkdir -p "$MSOL_STATE_DIR"; js="$MSOL_STATE_DIR/$nonce.js"
+  cat > "$js" <<JS
+var wid = "$wid", action = "$action", state = "none";
+for (const w of workspace.windowList()) {
+  if (w.desktopFileName !== wid && w.resourceClass !== wid) continue;
+  const hidden = w.minimized || w.skipTaskbar;
+  if (state === "none" || !hidden) state = hidden ? "hidden" : "visible";
+  if (action === "close") { w.closeWindow(); continue; }
+  const hide = action === "hide" || (action === "toggle" && !hidden && workspace.activeWindow === w);
+  if (hide) { w.skipTaskbar = true; w.minimized = true; }
+  else if (action === "show" || action === "toggle") { w.skipTaskbar = false; w.minimized = false; workspace.activeWindow = w; }
+}
+print("MSOLWIN|$nonce|" + state);
+JS
+  since="$(date +%s)"; name="msol-window-$nonce"
+  local sid; sid="$(kwin_qdbus /Scripting org.kde.kwin.Scripting.loadScript "$js" "$name")"
+  kwin_qdbus "/Scripting/Script$sid" org.kde.kwin.Script.run >/dev/null
+  result=""
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    result="$(journalctl --user -o cat --since "@$((since - 1))" --grep "MSOLWIN\\|$nonce\\|" 2>/dev/null | tail -1)"
+    [[ -n "$result" ]] && break
+    sleep 0.2
+  done
+  kwin_qdbus /Scripting org.kde.kwin.Scripting.unloadScript "$name" >/dev/null
+  rm -f "$js"
+  result="${result##*|}"
+  echo "${result:-none}"
+  # Toggling an app that isn't running starts it.
+  [[ "$action" != toggle || -n "$result" && "$result" != none ]] || cmd_launch "$id"
+}
+
+# KDE autostart entry for an app, started hidden (e.g. Teams, shown from the widget).
+cmd_autostart() { # autostart <id> on|off|status
+  local id="${1:-}" action="${2:-status}"
+  [[ -n "$id" ]] || die "usage: msol autostart <id> on|off|status"
+  local name; name="$(app_field "$id" 2)" || die "unknown app '$id' (see: msol list)"
+  local f="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/msol-$id.desktop"
+  case "$action" in
+    on)
+      mkdir -p "${f%/*}"
+      cat > "$f" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=$name (msol, hidden)
+Comment=Start $name at login, hidden; show it from the msol widget
+Exec="$SELF" launch $id --hidden
+Icon=$(icon_for "$id" "$(app_field "$id" 4)")
+Terminal=false
+X-MSOL=true
+X-GNOME-Autostart-enabled=true
+DESKTOP
+      echo on ;;
+    off) rm -f "$f"; echo off ;;
+    status) [[ -f "$f" ]] && echo on || echo off ;;
+    *) die "usage: msol autostart <id> on|off|status" ;;
+  esac
 }
 
 cmd_signin() {
@@ -371,6 +450,10 @@ cmd_uninstall() { # uninstall [--all] [--yes]
     [[ -f "$f" ]] && grep -q '^X-MSOL=true' "$f" && { rm -f "$f"; n=$((n+1)); }
   done
   removed+=("$n menu entries")
+  # Login entries made by 'msol autostart'.
+  for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/autostart/msol-*.desktop; do
+    [[ -f "$f" ]] && grep -q '^X-MSOL=true' "$f" && { rm -f "$f"; removed+=("autostart entry ${f##*/}"); }
+  done
   # Link helper registration (the extension itself lives in this folder).
   for f in "$edge_cfg/NativeMessagingHosts/com.msol.open.json" "$MSOL_PROFILE_DIR/NativeMessagingHosts/com.msol.open.json"; do
     [[ -f "$f" ]] && rm -f "$f"
@@ -525,6 +608,9 @@ cmd_engine() {
 
 case "${1:-}" in
   launch)    shift; cmd_launch "$@" ;;
+  window)    shift; cmd_window "$@" ;;
+  autostart) shift; cmd_autostart "$@" ;;
+  icon)      shift; icon_for "${1:?id}" "$(app_field "$1" 4)" ;;
   edge-install|edge-update) cmd_edge_install ;;
   engine)    cmd_engine ;;
   note)      shift; cmd_note "$@" ;;
@@ -549,7 +635,9 @@ Usage: msol <command>
   gui            open the Microsoft 365 Launcher (tiles + sign-in status)
   signin [URL]   open a sign-in window in the shared profile (--browser for a full window)
   signin-edge    open Edge's own account sign-in page (sign the profile in, for automatic sign-in)
-  launch <id>    open one app as its own window, e.g. 'msol launch word'
+  launch <id>    open one app as its own window, e.g. 'msol launch word' (--hidden: start hidden)
+  window <id> <a> show, hide, toggle or close an app's window, or print its status
+  autostart <id> on|off|status  start an app at login, hidden (e.g. Teams, shown from the widget)
   open-url <url> open any https link as a window of its own
   list           show all apps, their group, and which ones are shown
   enable <x>..   show apps: an id, a group (e.g. 'Power Platform'), 'all' or 'defaults'
