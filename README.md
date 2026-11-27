@@ -1,3 +1,5 @@
+<img src="icons/msol.svg" alt="msol icon: a penguin in front of an app grid" width="96" align="right">
+
 # Microsoft on Linux (`msol`)
 
 [![CI](https://github.com/LemcheNET/msol/actions/workflows/ci.yml/badge.svg)](https://github.com/LemcheNET/msol/actions/workflows/ci.yml)
@@ -182,7 +184,7 @@ lines), `msol log 200`, or follow it live with `msol log -f`.
 | `ACCOUNT-CACHE` | Whether Edge's account cache (`~/.cache/Microsoft/Edge/IdentityCache`) holds an account |
 | `NOTE` | Your own note |
 
-Add a note before each test case, from the launcher (**Add note…**) or:
+Add a note before each test case:
 
 ```bash
 ./msol note "case 3: closed all apps, reopened Outlook from the taskbar"

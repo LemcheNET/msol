@@ -63,6 +63,12 @@ contents:
   - src: ./extension/
     dst: /usr/lib/msol/extension/
     type: tree
+  - src: ./icons/msol.svg
+    dst: /usr/lib/msol/icons/msol.svg
+    file_info: {mode: 0644}
+  - src: ./icons/msol.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/msol.svg
+    file_info: {mode: 0644}
   - src: /usr/lib/msol/msol
     dst: /usr/bin/msol
     type: symlink
