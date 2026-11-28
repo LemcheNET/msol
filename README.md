@@ -41,21 +41,22 @@ msol is an independent project, not made, endorsed or supported by Microsoft.
 
 ## Setup
 
-**From the APT repository** (Debian, Ubuntu, Kubuntu, KDE neon), so `apt upgrade`
-brings new versions:
+**From the LemcheNET apt repository** (Debian, Ubuntu, Kubuntu, KDE neon), so
+`apt upgrade` brings new versions:
 
 ```bash
-sudo curl -fsSLo /usr/share/keyrings/msol-archive-keyring.gpg https://products.lemche.net/msol/apt/msol-archive-keyring.gpg
-sudo curl -fsSLo /etc/apt/sources.list.d/msol.sources https://products.lemche.net/msol/apt/msol.sources
-sudo chmod 644 /usr/share/keyrings/msol-archive-keyring.gpg /etc/apt/sources.list.d/msol.sources
+curl -fsSLO https://products.lemche.net/apt/lemchenet-archive-keyring.deb
+sudo apt install ./lemchenet-archive-keyring.deb
 sudo apt update && sudo apt install msol
 ```
 
-The repository is signed with the key
-`BFF6 2184 3185 94CF F101  AA92 BDD4 2290 9F65 02DA` ("msol APT repository (LemcheNET)").
-apt reads the key as an unprivileged user, so both files must be readable by
-everyone; the `chmod` matters on systems where root's umask is strict (077).
-The package keeps these two files up to date itself.
+The `lemchenet-archive-keyring` package adds the
+[repository that serves all LemcheNET products](https://products.lemche.net/#apt)
+and the key that signs it, and keeps both up to date.
+
+The old msol-only repository (`https://products.lemche.net/msol/apt`, key
+`BFF6 2184 3185 94CF F101  AA92 BDD4 2290 9F65 02DA`) still gets every release, so
+existing installations keep updating.
 
 **Or from a single .deb:** download `msol_<version>_all.deb` from the
 [latest release](https://github.com/LemcheNET/msol/releases/latest) and run

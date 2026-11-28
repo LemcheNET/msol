@@ -49,3 +49,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # (A release made with the workflow token doesn't trigger other workflows by itself.)
         run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Add the release to the LemcheNET apt repository
+        env:
+          # Fine-grained token with Contents: read and write on LemcheNET/lemchenet.github.io only.
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.LEMCHENET_APT_DISPATCH_TOKEN }}
+        # The nightly rebuild of products.lemche.net/apt picks the release up if this fails.
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::LEMCHENET_APT_DISPATCH_TOKEN is not set: the release reaches products.lemche.net/apt at the nightly rebuild."
+            exit 0
+          fi
+          gh api repos/LemcheNET/lemchenet.github.io/dispatches -f event_type=apt-release \
+            -f "client_payload[repository]=$GITHUB_REPOSITORY" -f "client_payload[tag]=$TAG" \
+            || echo "::warning::The dispatch failed: the release reaches products.lemche.net/apt at the nightly rebuild."
