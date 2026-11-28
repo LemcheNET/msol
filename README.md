@@ -45,8 +45,8 @@ msol is an independent project, not made, endorsed or supported by Microsoft.
 `apt upgrade` brings new versions:
 
 ```bash
-curl -fsSLO https://products.lemche.net/apt/lemchenet-archive-keyring.deb
-sudo apt install ./lemchenet-archive-keyring.deb
+curl -fsSLo /tmp/lemchenet-archive-keyring.deb https://products.lemche.net/apt/lemchenet-archive-keyring.deb
+sudo apt install /tmp/lemchenet-archive-keyring.deb
 sudo apt update && sudo apt install msol
 ```
 
